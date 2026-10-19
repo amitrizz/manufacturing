@@ -8,9 +8,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const MONGODB_URI =
-  process.env.DATABASE_URL ||
-  'mongodb+srv://amit:amit@cluster0.tysk0hr.mongodb.net/manufacturing?retryWrites=true&w=majority&appName=Cluster0';
+const MONGODB_URI = process.env.DATABASE_URL ||"";
 const DB_NAME = process.env.MONGODB_DB_NAME || 'manufacturing';
 
 app.use(cors());
