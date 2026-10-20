@@ -85,7 +85,9 @@ export function QualityDashboardScreen({ navigation, route }: Props) {
     return inspections.filter(
       (i) =>
         i.batch_number.toLowerCase().includes(q) ||
-        (i.inspector && i.inspector.toLowerCase().includes(q)),
+        (i.inspector && i.inspector.toLowerCase().includes(q)) ||
+        ((i as any).order_number && (i as any).order_number.toLowerCase().includes(q)) ||
+        ((i as any).product_name && (i as any).product_name.toLowerCase().includes(q)),
     );
   }, [inspections, search]);
 
@@ -333,6 +335,12 @@ export function QualityDashboardScreen({ navigation, route }: Props) {
                 <View style={styles.historyHeader}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.historyBatch}>{item.batch_number}</Text>
+                    {(item as any).order_number ? (
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: colors.text, marginTop: 2 }}>
+                        Order: {(item as any).order_number}
+                        {(item as any).product_name ? ` • ${(item as any).product_name}` : ''}
+                      </Text>
+                    ) : null}
                     <Text style={styles.historyMeta}>
                       Inspector: {item.inspector} • {formatDateTime(item.inspected_at)}
                     </Text>
