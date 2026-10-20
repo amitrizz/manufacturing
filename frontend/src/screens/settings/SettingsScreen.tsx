@@ -86,6 +86,13 @@ export function SettingsScreen() {
       `Current active URL:\n${cur}\n\nSelect a server address:`,
       [
         {
+          text: 'Render Cloud (Production)',
+          onPress: async () => {
+            await setApiBaseUrl('https://manufacturing-i0lp.onrender.com');
+            Alert.alert('Updated', 'Set to https://manufacturing-i0lp.onrender.com');
+          },
+        },
+        {
           text: 'Auto-Detect (Best)',
           onPress: async () => {
             await setApiBaseUrl('');

@@ -3,10 +3,10 @@ import { Platform } from 'react-native';
 
 const STORAGE_KEY_API_URL = '@mfg_api_url';
 
-// Multi-endpoint candidate list for seamless connectivity across Wi-Fi, 4G/5G, and emulators
+// Multi-endpoint candidate list for seamless connectivity across Cloud, Wi-Fi, 4G/5G, and emulators
 const CANDIDATE_URLS: string[] = [
+  'https://manufacturing-i0lp.onrender.com',
   process.env.EXPO_PUBLIC_API_URL || '',
-  'https://eighty-meals-dream.loca.lt',
   'http://192.168.1.53:5000',
   Platform.select({
     android: 'http://10.0.2.2:5000',
@@ -94,9 +94,11 @@ export async function setApiBaseUrl(url: string): Promise<void> {
 export async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   let baseUrl = await getApiBaseUrl();
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const method = (options.method || 'GET').toUpperCase();
 
   const makeRequest = async (urlHost: string) => {
     const url = `${urlHost}${cleanEndpoint}`;
+    console.log(`🌐 [API ${method}] -> ${url}`);
     return fetch(url, {
       ...options,
       headers: {
@@ -112,12 +114,14 @@ export async function apiFetch<T>(endpoint: string, options: RequestInit = {}): 
   let res: Response;
   try {
     res = await makeRequest(baseUrl);
+    console.log(`📡 [API ${res.status} ${res.statusText || 'OK'}] <- ${baseUrl}${cleanEndpoint}`);
   } catch (netErr) {
     // If the network request failed, invalidate cached URL, re-resolve, and retry once
     console.warn(`Fetch failed on ${baseUrl}, attempting re-discovery:`, netErr);
     cachedBaseUrl = null;
     baseUrl = await getApiBaseUrl();
     res = await makeRequest(baseUrl);
+    console.log(`📡 [API ${res.status} ${res.statusText || 'OK'}] <- ${baseUrl}${cleanEndpoint}`);
   }
 
   if (!res.ok) {
@@ -130,6 +134,7 @@ export async function apiFetch<T>(endpoint: string, options: RequestInit = {}): 
     } catch {
       // ignore
     }
+    console.error(`❌ [API Error] ${errMsg}`);
     throw new Error(errMsg);
   }
 
