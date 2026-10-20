@@ -14,7 +14,30 @@ export class ProductionBlockedError extends Error {
   }
 }
 
-export async function startProduction(orderId: string, machineId: string): Promise<void> {
+export type StartProductionInput = {
+  orderId: string;
+  machineIds: string[];
+  workerIds?: string[];
+  workerNames?: string[];
+};
+
+export async function startProduction(
+  orderIdOrInput: string | StartProductionInput,
+  maybeMachineId?: string,
+): Promise<void> {
+  const isInputObj = typeof orderIdOrInput === 'object';
+  const orderId = isInputObj ? orderIdOrInput.orderId : orderIdOrInput;
+  const machineIds = isInputObj
+    ? orderIdOrInput.machineIds
+    : maybeMachineId
+    ? [maybeMachineId]
+    : [];
+  const workerNames = isInputObj ? orderIdOrInput.workerNames || [] : [];
+
+  if (!machineIds || machineIds.length === 0) {
+    throw new ProductionBlockedError('At least one machine must be assigned to start production.');
+  }
+
   const availability = await getMaterialAvailabilityForOrder(orderId);
   const shortages = availability.filter((a) => a.status === 'SHORTAGE');
   if (shortages.length > 0) {
@@ -32,15 +55,18 @@ export async function startProduction(orderId: string, machineId: string): Promi
   // Pre-production quality check requirement
   if (order.qc_status !== 'PASSED' && order.qc_status !== 'WAIVED') {
     throw new ProductionBlockedError(
-      `Pre-production quality check is required before starting production. Current status: ${order.qc_status || 'PENDING'}. Please complete offline inspection and update the QC record to PASSED.`,
+      `Pre-production quality check is required before starting production. Current status: ${order.qc_status || 'PENDING'}. Please complete offline inspection and approve QC first.`,
     );
   }
 
   const now = Date.now();
+  const primaryMachineId = machineIds[0];
 
   await mongoApi.update('production_orders', orderId, {
     status: 'IN_PROGRESS',
-    machine_id: machineId,
+    machine_id: primaryMachineId,
+    assigned_machines: machineIds,
+    assigned_workers: workerNames,
     started_at: order.started_at || now,
     start_date: order.start_date || now,
     updated_at: now,
@@ -55,19 +81,24 @@ export async function startProduction(orderId: string, machineId: string): Promi
       .catch(() => {});
   }
 
-  await mongoApi
-    .update('machines', machineId, {
-      status: 'RUNNING',
-      current_product_id: order.product_id,
-      updated_at: now,
-    })
-    .catch(() => {});
+  // Set all assigned machines to RUNNING and assign operator info
+  const operatorLabel = workerNames.length > 0 ? workerNames.join(', ') : null;
+  for (const mId of machineIds) {
+    await mongoApi
+      .update('machines', mId, {
+        status: 'RUNNING',
+        current_product_id: order.product_id,
+        current_operator: operatorLabel,
+        updated_at: now,
+      })
+      .catch(() => {});
+  }
 
   await mongoApi
     .insert('activity_history', {
       event_type: 'PRODUCTION_STARTED',
       title: 'Production started',
-      description: order.order_number,
+      description: `${order.order_number} · Machines: ${machineIds.length} · Workers: ${operatorLabel || 'Assigned'}`,
       reference_type: 'production_order',
       reference_id: orderId,
       timestamp: now,
@@ -213,8 +244,6 @@ export type UpdatePreProductionQcInput = {
   qcStatus: 'PASSED' | 'FAILED' | 'WAIVED';
   inspector: string;
   notes?: string;
-  startProductionNow?: boolean;
-  machineId?: string;
   parameters?: {
     toolingChecked?: boolean;
     rawMaterialVerified?: boolean;
@@ -253,64 +282,6 @@ export async function updatePreProductionQc(input: UpdatePreProductionQcInput): 
     qc_notes: notesSummary,
     updated_at: now,
   });
-
-  if (input.startProductionNow && (input.qcStatus === 'PASSED' || input.qcStatus === 'WAIVED')) {
-    let targetMachineId = input.machineId || order.machine_id;
-    if (!targetMachineId) {
-      try {
-        const machines = await mongoApi.getCollection<any>('machines');
-        const idleM = machines.find((m) => m.status === 'IDLE');
-        const runningM = machines.find((m) => m.status === 'RUNNING');
-        targetMachineId =
-          idleM?.id ||
-          idleM?._id ||
-          runningM?.id ||
-          runningM?._id ||
-          machines[0]?.id ||
-          machines[0]?._id ||
-          null;
-      } catch {}
-    }
-
-    await mongoApi.update('production_orders', input.orderId, {
-      status: 'IN_PROGRESS',
-      machine_id: targetMachineId ?? order.machine_id,
-      started_at: order.started_at || now,
-      start_date: order.start_date || now,
-      updated_at: now,
-    });
-
-    if (order.plan_id) {
-      await mongoApi
-        .update('production_plans', order.plan_id, {
-          status: 'IN_PROGRESS',
-          updated_at: now,
-        })
-        .catch(() => {});
-    }
-
-    if (targetMachineId) {
-      await mongoApi
-        .update('machines', targetMachineId, {
-          status: 'RUNNING',
-          current_product_id: order.product_id,
-          updated_at: now,
-        })
-        .catch(() => {});
-    }
-
-    await mongoApi
-      .insert('activity_history', {
-        event_type: 'PRODUCTION_STARTED',
-        title: 'Production started',
-        description: order.order_number,
-        reference_type: 'production_order',
-        reference_id: input.orderId,
-        timestamp: now,
-        created_at: now,
-      })
-      .catch(() => {});
-  }
 
   // Record in quality_inspections table for full audit trace
   const inspectionId = newId();

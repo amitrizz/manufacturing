@@ -6,7 +6,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
@@ -15,13 +14,12 @@ import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
 import { Screen } from '../../components/common/Screen';
 import { ViewModeBanner } from '../../components/common/ViewModeBanner';
-import { listMachines } from '../../database/repositories/machineRepository';
 import {
   getProductionOrderById,
   listProductionOrders,
 } from '../../database/repositories/productionOrderRepository';
 import { listOrdersWaitingForQc } from '../../database/repositories/qualityRepository';
-import { startProduction, updatePreProductionQc } from '../../services/productionService';
+import { updatePreProductionQc } from '../../services/productionService';
 import { useAuthStore } from '../../store/authStore';
 import { colors, spacing } from '../../theme';
 import type { ProductionOrderRow } from '../../types/database';
@@ -53,7 +51,6 @@ export function InspectionCreateScreen({ navigation, route }: Props) {
   // Inspector and checklist
   const [inspector, setInspector] = useState(defaultInspector);
   const [notes, setNotes] = useState('');
-  const [startImmediately, setStartImmediately] = useState(true);
 
   // Verification Checklist Items
   const [rawMaterialVerified, setRawMaterialVerified] = useState(true);
@@ -126,7 +123,7 @@ export function InspectionCreateScreen({ navigation, route }: Props) {
     return source;
   }, [filterMode, pendingOrders, allOrders, searchOrderQuery]);
 
-  const handleApproveInspection = async (startNow = startImmediately) => {
+  const handleApproveInspection = async () => {
     if (isViewOnly) {
       Alert.alert('View Only', 'Cannot approve quality inspections in view-only mode.');
       return;
@@ -143,8 +140,6 @@ export function InspectionCreateScreen({ navigation, route }: Props) {
         qcStatus: 'PASSED',
         inspector: inspector.trim() || 'Quality Inspector',
         notes,
-        startProductionNow: startNow,
-        machineId: selectedOrder.machine_id ?? undefined,
         parameters: {
           rawMaterialVerified,
           toolingChecked,
@@ -154,70 +149,23 @@ export function InspectionCreateScreen({ navigation, route }: Props) {
         },
       });
 
-      if (startNow) {
-        Alert.alert(
-          'Approved & Production Started',
-          `Order ${selectedOrder.order_number} has passed pre-production QC and production has started!`,
-          [
-            {
-              text: 'Record Output Now',
-              onPress: () => {
-                navigation.replace('RecordProduction', { orderId: selectedOrder.id });
-              },
+      Alert.alert(
+        'Quality Check Approved',
+        `Order ${selectedOrder.order_number} has passed Quality Check.\n\nProduction is now unlocked. You can assign machine(s) and worker(s) when starting production from the order screen.`,
+        [
+          {
+            text: 'View Order',
+            onPress: () => {
+              navigation.replace('ProductionOrderDetail', { orderId: selectedOrder.id });
             },
-            {
-              text: 'View Order',
-              onPress: () => {
-                navigation.replace('ProductionOrderDetail', { orderId: selectedOrder.id });
-              },
-            },
-            {
-              text: 'Done',
-              onPress: () => navigation.goBack(),
-              style: 'cancel',
-            },
-          ],
-        );
-      } else {
-        Alert.alert(
-          'Quality Check Approved',
-          `Order ${selectedOrder.order_number} has been approved and unlocked! Production can now be started.`,
-          [
-            {
-              text: 'Start Production Now',
-              onPress: async () => {
-                try {
-                  const idleM = await listMachines({ status: 'IDLE' });
-                  const runningM = await listMachines({ status: 'RUNNING' });
-                  const allM = await listMachines();
-                  const targetMachineId =
-                    selectedOrder.machine_id ?? idleM[0]?.id ?? runningM[0]?.id ?? allM[0]?.id;
-                  if (!targetMachineId) {
-                    Alert.alert('No Machine', 'No machine available to assign.');
-                    return;
-                  }
-                  await startProduction(selectedOrder.id, targetMachineId);
-                  Alert.alert('Started', 'Production started successfully.');
-                  navigation.replace('ProductionOrderDetail', { orderId: selectedOrder.id });
-                } catch (err: unknown) {
-                  Alert.alert('Error Starting', err instanceof Error ? err.message : 'Failed');
-                }
-              },
-            },
-            {
-              text: 'View Order Details',
-              onPress: () => {
-                navigation.replace('ProductionOrderDetail', { orderId: selectedOrder.id });
-              },
-            },
-            {
-              text: 'Done',
-              onPress: () => navigation.goBack(),
-              style: 'cancel',
-            },
-          ],
-        );
-      }
+          },
+          {
+            text: 'Done',
+            onPress: () => navigation.goBack(),
+            style: 'cancel',
+          },
+        ],
+      );
     } catch (e: unknown) {
       Alert.alert('Approval Error', e instanceof Error ? e.message : 'Failed to approve QC');
     } finally {
@@ -248,7 +196,6 @@ export function InspectionCreateScreen({ navigation, route }: Props) {
                 qcStatus: 'FAILED',
                 inspector: inspector.trim() || 'Quality Inspector',
                 notes: notes.trim() || 'Pre-production quality check rejected by QA',
-                startProductionNow: false,
                 parameters: {
                   rawMaterialVerified,
                   toolingChecked,
@@ -580,48 +527,17 @@ export function InspectionCreateScreen({ navigation, route }: Props) {
             />
           </View>
 
-          {/* Start Production Immediately Switch */}
-          <View style={styles.switchRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.switchTitle}>Start Production Immediately</Text>
-              <Text style={styles.switchSub}>
-                Transitions order status to IN PROGRESS so operators can record output right away.
-              </Text>
-            </View>
-            <Switch
-              value={startImmediately}
-              onValueChange={setStartImmediately}
-              trackColor={{ false: '#CBD5E1', true: '#93C5FD' }}
-              thumbColor={startImmediately ? colors.primary : '#FFFFFF'}
-            />
-          </View>
-
-          {/* Action Buttons */}
+          {/* Action Buttons: QC Approval or Rejection Only */}
           {!isViewOnly && (
             <View style={styles.actionsBox}>
               <Pressable
                 style={[styles.approveBtn, submitting && { opacity: 0.7 }]}
-                onPress={() => handleApproveInspection(true)}
-                disabled={submitting}
-              >
-                <Ionicons name="play-circle" size={18} color="#FFFFFF" />
-                <Text style={styles.approveBtnText}>
-                  {submitting ? 'Approving...' : 'Approve & Start Production'}
-                </Text>
-              </Pressable>
-
-              <Pressable
-                style={[
-                  styles.approveBtn,
-                  { backgroundColor: '#0284C7', borderColor: '#0369A1' },
-                  submitting && { opacity: 0.7 },
-                ]}
-                onPress={() => handleApproveInspection(false)}
+                onPress={handleApproveInspection}
                 disabled={submitting}
               >
                 <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
                 <Text style={styles.approveBtnText}>
-                  {submitting ? 'Approving...' : 'Approve QC Only (Pending Start)'}
+                  {submitting ? 'Approving...' : 'Approve Quality Check'}
                 </Text>
               </Pressable>
 

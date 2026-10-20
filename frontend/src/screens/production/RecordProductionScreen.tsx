@@ -5,13 +5,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../../components/common/Card';
 import { Screen } from '../../components/common/Screen';
 import { SectionHeader } from '../../components/common/SectionHeader';
-import { listMachines } from '../../database/repositories/machineRepository';
 import {
   getMaterialConsumptionPreview,
   getProductionOrderById,
   listProductionOrders,
 } from '../../database/repositories/productionOrderRepository';
-import { recordProduction, startProduction } from '../../services/productionService';
+import { recordProduction } from '../../services/productionService';
 import type { MaterialConsumptionLine, ProductionOrderRow } from '../../types/database';
 import type { ProductionStackParamList } from '../../navigation/types';
 import { colors, spacing, typography } from '../../theme';
@@ -134,41 +133,19 @@ export function RecordProductionScreen({ navigation, route }: Props) {
       const order = currentOrder || (await getProductionOrderById(selectedOrderId));
       let targetMachineId = order?.machine_id || route.params?.machineId;
       if (!targetMachineId) {
-        const idleM = await listMachines({ status: 'IDLE' });
-        const runM = await listMachines({ status: 'RUNNING' });
-        const allM = await listMachines();
-        const autoMachine = idleM[0] || runM[0] || allM[0];
-        if (autoMachine) {
-          Alert.alert(
-            'Machine Required',
-            `Order ${order?.order_number || selectedOrderId} does not have a machine assigned yet. Would you like to assign machine ${autoMachine.code} and record output now?`,
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: `Assign ${autoMachine.code} & Record`,
-                onPress: async () => {
-                  try {
-                    await startProduction(selectedOrderId, autoMachine.id);
-                    await recordProduction({
-                      orderId: selectedOrderId,
-                      machineId: autoMachine.id,
-                      shift,
-                      goodQuantity: Number(good),
-                      rejectedQuantity: Number(reject),
-                      operator: recordedBy,
-                    });
-                    Alert.alert('Recorded', `Production entry saved on machine ${autoMachine.code}.`);
-                    navigation.goBack();
-                  } catch (err: unknown) {
-                    Alert.alert('Cannot Record', err instanceof Error ? err.message : 'Failed');
-                  }
-                },
+        Alert.alert(
+          'Machine & Worker Required',
+          `Order ${order?.order_number || selectedOrderId} has not started production yet. Please open Order Details to assign machine(s) and worker(s) before recording output.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Open Order Details',
+              onPress: () => {
+                navigation.replace('ProductionOrderDetail', { orderId: selectedOrderId });
               },
-            ],
-          );
-          return;
-        }
-        Alert.alert('Error', 'Please create and assign a machine first before recording production.');
+            },
+          ],
+        );
         return;
       }
       await recordProduction({

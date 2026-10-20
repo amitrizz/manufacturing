@@ -5,6 +5,7 @@ import {
   Alert,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -17,6 +18,7 @@ import { Screen } from '../../components/common/Screen';
 import { SectionHeader } from '../../components/common/SectionHeader';
 import { StatusBadge } from '../../components/common/StatusBadge';
 import { listMachines } from '../../database/repositories/machineRepository';
+import { listStaff } from '../../database/repositories/staffRepository';
 import {
   deleteProductionOrder,
   getMaterialAvailabilityForOrder,
@@ -30,7 +32,13 @@ import {
 } from '../../services/productionService';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import { colors, spacing, typography } from '../../theme';
-import type { MaterialAvailabilityRow, Priority, ProductionOrderRow } from '../../types/database';
+import type {
+  MachineRow,
+  MaterialAvailabilityRow,
+  Priority,
+  ProductionOrderRow,
+  StaffRow,
+} from '../../types/database';
 import { progressPct } from '../../utils/calculations';
 import { formatDateTime, formatNumber, formatPct } from '../../utils/format';
 
@@ -51,6 +59,14 @@ export function ProductionOrderDetailScreen({ navigation, route }: Props) {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editTargetQty, setEditTargetQty] = useState('');
   const [editPriority, setEditPriority] = useState<Priority>('MEDIUM');
+
+  // Resource Assignment Modal State (Machine + Worker required for production)
+  const [showStartModal, setShowStartModal] = useState(false);
+  const [availableMachines, setAvailableMachines] = useState<MachineRow[]>([]);
+  const [availableStaff, setAvailableStaff] = useState<StaffRow[]>([]);
+  const [selectedMachineIds, setSelectedMachineIds] = useState<string[]>([]);
+  const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
+  const [startingProduction, setStartingProduction] = useState(false);
 
   const load = useCallback(async () => {
     const o = await getProductionOrderById(route.params.orderId);
@@ -121,29 +137,82 @@ export function ProductionOrderDetailScreen({ navigation, route }: Props) {
     }
 
     try {
-      const idleMachines = await listMachines({ status: 'IDLE' });
-      const runningMachines = await listMachines({ status: 'RUNNING' });
-      const allMachines = await listMachines();
-      const machineId =
-        order?.machine_id ??
-        idleMachines[0]?.id ??
-        runningMachines[0]?.id ??
-        allMachines[0]?.id;
-      if (!machineId) {
-        Alert.alert('No machine', 'No machines available. Please create a machine first.');
-        return;
-      }
-      await startProduction(route.params.orderId, machineId);
+      const [machines, staff] = await Promise.all([
+        listMachines().catch(() => []),
+        listStaff({ activeOnly: true }).catch(() => []),
+      ]);
+      setAvailableMachines(machines);
+      setAvailableStaff(staff);
+
+      // Pre-select order's machine or first idle machine
+      const defaultMId =
+        order?.machine_id ||
+        machines.find((m) => m.status === 'IDLE')?.id ||
+        machines[0]?.id;
+      setSelectedMachineIds(defaultMId ? [defaultMId] : []);
+
+      // Pre-select first operator if available
+      const defaultWorker =
+        staff.find((s) => s.role === 'OPERATOR') ||
+        staff[0];
+      setSelectedStaffIds(defaultWorker ? [defaultWorker.id] : []);
+
+      setShowStartModal(true);
+    } catch (e: unknown) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Could not load machines and staff');
+    }
+  };
+
+  const toggleMachineSelection = (id: string) => {
+    setSelectedMachineIds((prev) =>
+      prev.includes(id) ? prev.filter((mId) => mId !== id) : [...prev, id],
+    );
+  };
+
+  const toggleStaffSelection = (id: string) => {
+    setSelectedStaffIds((prev) =>
+      prev.includes(id) ? prev.filter((sId) => sId !== id) : [...prev, id],
+    );
+  };
+
+  const handleConfirmStartProduction = async () => {
+    if (selectedMachineIds.length === 0) {
+      Alert.alert('Machine Required', 'Please assign at least one machine for this production.');
+      return;
+    }
+    if (selectedStaffIds.length === 0) {
+      Alert.alert('Worker Required', 'Please assign at least one worker to the machine(s).');
+      return;
+    }
+
+    try {
+      setStartingProduction(true);
+      const chosenWorkers = availableStaff.filter((s) => selectedStaffIds.includes(s.id));
+      const workerNames = chosenWorkers.map((w) => w.name);
+
+      await startProduction({
+        orderId: route.params.orderId,
+        machineIds: selectedMachineIds,
+        workerIds: selectedStaffIds,
+        workerNames,
+      });
+
+      setShowStartModal(false);
       await load();
-      Alert.alert('Started', 'Production started successfully.');
+      Alert.alert(
+        'Production Started',
+        `Production started successfully for order ${order?.order_number}.\n\nMachines: ${selectedMachineIds.length} assigned\nWorkers: ${workerNames.join(', ')} assigned`,
+      );
     } catch (e: unknown) {
       const msg =
         e instanceof ProductionBlockedError
           ? e.message
           : e instanceof Error
             ? e.message
-            : 'Failed';
-      Alert.alert('Cannot start', msg);
+            : 'Failed to start production';
+      Alert.alert('Cannot Start', msg);
+    } finally {
+      setStartingProduction(false);
     }
   };
 
@@ -192,6 +261,46 @@ export function ProductionOrderDetailScreen({ navigation, route }: Props) {
         </Text>
         <ProgressBar progress={progress} />
       </Card>
+
+      {/* Assigned Resources Card */}
+      {(order.assigned_machines?.length || order.assigned_workers?.length || order.machine_id) ? (
+        <Card style={styles.resourceCard}>
+          <View style={styles.resourceHeader}>
+            <Ionicons name="hardware-chip-outline" size={17} color={colors.primary} />
+            <Text style={styles.resourceTitle}>Assigned Production Resources</Text>
+          </View>
+          <View style={styles.resourceSection}>
+            <Text style={styles.resourceLabel}>Assigned Machine(s):</Text>
+            <View style={styles.tagWrap}>
+              {(order.assigned_machines && order.assigned_machines.length > 0
+                ? order.assigned_machines
+                : order.machine_code
+                ? [order.machine_code]
+                : ['Assigned']
+              ).map((mCode, idx) => (
+                <View key={idx} style={styles.machineTag}>
+                  <Ionicons name="cube" size={12} color="#1E40AF" />
+                  <Text style={styles.machineTagText}>{mCode}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+          <View style={[styles.resourceSection, { marginTop: 8 }]}>
+            <Text style={styles.resourceLabel}>Assigned Operator(s) / Worker(s):</Text>
+            <View style={styles.tagWrap}>
+              {(order.assigned_workers && order.assigned_workers.length > 0
+                ? order.assigned_workers
+                : ['Not assigned yet']
+              ).map((wName, idx) => (
+                <View key={idx} style={styles.workerTag}>
+                  <Ionicons name="person" size={12} color="#065F46" />
+                  <Text style={styles.workerTagText}>{wName}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        </Card>
+      ) : null}
 
       {/* 2. Pre-Production Quality Check (Offline) Card */}
       <Card
@@ -343,10 +452,8 @@ export function ProductionOrderDetailScreen({ navigation, route }: Props) {
               <Button
                 label={
                   isQcApproved
-                    ? hasMachine
-                      ? 'Start production'
-                      : 'Assign Machine & Start Production'
-                    : 'Start production (QC Pending)'
+                    ? 'Start Production (Assign Machine & Worker)'
+                    : 'Start Production (QC Pending)'
                 }
                 variant={isQcApproved ? 'primary' : 'secondary'}
                 onPress={onStart}
@@ -435,6 +542,174 @@ export function ProductionOrderDetailScreen({ navigation, route }: Props) {
             <View style={styles.modalActions}>
               <Button label="Cancel" variant="secondary" onPress={() => setShowEditModal(false)} />
               <Button label="Save Changes" onPress={handleSaveEdit} />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Start Production & Resource Assignment Modal */}
+      <Modal visible={showStartModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '88%' }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={typography.h2}>Start Production</Text>
+                <Text style={styles.modalSub}>
+                  {order.order_number} · {order.product_name}
+                </Text>
+              </View>
+              <Pressable onPress={() => setShowStartModal(false)}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Step 1: Machine Assignment */}
+              <View style={styles.stepBox}>
+                <View style={styles.stepHeaderRow}>
+                  <View style={styles.stepNumberBadge}>
+                    <Text style={styles.stepNumberText}>1</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.stepTitle}>Assign Machine(s) *</Text>
+                    <Text style={styles.stepSubtitle}>
+                      Select 1 or more machines for this production run:
+                    </Text>
+                  </View>
+                  <View style={styles.selectedCountBadge}>
+                    <Text style={styles.selectedCountText}>
+                      {selectedMachineIds.length} selected
+                    </Text>
+                  </View>
+                </View>
+
+                {availableMachines.length === 0 ? (
+                  <Text style={styles.emptyNotice}>No machines registered in the factory.</Text>
+                ) : (
+                  <View style={{ gap: 8, marginTop: 10 }}>
+                    {availableMachines.map((m) => {
+                      const isSelected = selectedMachineIds.includes(m.id);
+                      const isIdle = m.status === 'IDLE';
+                      return (
+                        <Pressable
+                          key={m.id}
+                          style={[
+                            styles.resourcePickCard,
+                            isSelected && styles.resourcePickCardSelected,
+                          ]}
+                          onPress={() => toggleMachineSelection(m.id)}
+                        >
+                          <Ionicons
+                            name={isSelected ? 'checkbox' : 'square-outline'}
+                            size={20}
+                            color={isSelected ? colors.primary : '#94A3B8'}
+                          />
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={styles.resourceCardName}>{m.code}</Text>
+                              <Text style={styles.resourceCardSub}>- {m.name}</Text>
+                            </View>
+                            {m.machine_type ? (
+                              <Text style={styles.resourceCardType}>{m.machine_type}</Text>
+                            ) : null}
+                          </View>
+                          <View
+                            style={[
+                              styles.miniStatusBadge,
+                              { backgroundColor: isIdle ? '#DCFCE7' : '#E0F2FE' },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.miniStatusText,
+                                { color: isIdle ? '#166534' : '#075985' },
+                              ]}
+                            >
+                              {m.status}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+
+              {/* Step 2: Worker Assignment */}
+              <View style={[styles.stepBox, { marginTop: 14 }]}>
+                <View style={styles.stepHeaderRow}>
+                  <View style={[styles.stepNumberBadge, { backgroundColor: '#0284C7' }]}>
+                    <Text style={styles.stepNumberText}>2</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.stepTitle}>Assign Worker(s) to Machine(s) *</Text>
+                    <Text style={styles.stepSubtitle}>
+                      Assign 1 or more staff members to operate the machine(s):
+                    </Text>
+                  </View>
+                  <View style={[styles.selectedCountBadge, { backgroundColor: '#E0F2FE' }]}>
+                    <Text style={[styles.selectedCountText, { color: '#0369A1' }]}>
+                      {selectedStaffIds.length} assigned
+                    </Text>
+                  </View>
+                </View>
+
+                {availableStaff.length === 0 ? (
+                  <Text style={styles.emptyNotice}>No active staff members found.</Text>
+                ) : (
+                  <View style={{ gap: 8, marginTop: 10 }}>
+                    {availableStaff.map((s) => {
+                      const isSelected = selectedStaffIds.includes(s.id);
+                      return (
+                        <Pressable
+                          key={s.id}
+                          style={[
+                            styles.resourcePickCard,
+                            isSelected && styles.resourcePickCardSelected,
+                          ]}
+                          onPress={() => toggleStaffSelection(s.id)}
+                        >
+                          <Ionicons
+                            name={isSelected ? 'checkbox' : 'square-outline'}
+                            size={20}
+                            color={isSelected ? colors.primary : '#94A3B8'}
+                          />
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.resourceCardName}>{s.name}</Text>
+                            <Text style={styles.resourceCardSub}>
+                              ID: {s.employee_id} · Shift: {s.shift || 'General'}
+                            </Text>
+                          </View>
+                          <View style={styles.roleTag}>
+                            <Text style={styles.roleTagText}>{s.role}</Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.summaryBox}>
+                <Ionicons name="information-circle" size={16} color="#0284C7" />
+                <Text style={styles.summaryText}>
+                  Rule: At least 1 machine and 1 worker must be assigned. Selected machines will transition to RUNNING with worker info assigned.
+                </Text>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <Button
+                label="Cancel"
+                variant="secondary"
+                onPress={() => setShowStartModal(false)}
+                disabled={startingProduction}
+              />
+              <Button
+                label={startingProduction ? 'Starting...' : 'Confirm & Start Production'}
+                onPress={handleConfirmStartProduction}
+                disabled={startingProduction}
+              />
             </View>
           </View>
         </View>
@@ -615,6 +890,192 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: spacing.sm,
     marginTop: spacing.lg,
+  },
+  resourceCard: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#CBD5E1',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: spacing.md,
+  },
+  resourceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    paddingBottom: 6,
+  },
+  resourceTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  resourceSection: {
+    marginTop: 2,
+  },
+  resourceLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  tagWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  machineTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  machineTagText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#1E40AF',
+  },
+  workerTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  workerTagText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  stepBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  stepHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  stepNumberBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumberText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  stepTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  stepSubtitle: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 1,
+  },
+  selectedCountBadge: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+  },
+  selectedCountText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#166534',
+  },
+  emptyNotice: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  resourcePickCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  resourcePickCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: '#EFF6FF',
+  },
+  resourceCardName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  resourceCardSub: {
+    fontSize: 11.5,
+    color: colors.textSecondary,
+  },
+  resourceCardType: {
+    fontSize: 10,
+    color: colors.textMuted,
+    marginTop: 1,
+  },
+  miniStatusBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  miniStatusText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  roleTag: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  roleTagText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  summaryBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  summaryText: {
+    fontSize: 11,
+    color: '#0369A1',
+    flex: 1,
+    lineHeight: 15,
   },
 });
 

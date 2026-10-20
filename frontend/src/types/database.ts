@@ -43,6 +43,8 @@ export type MachineRow = {
   downtime_seconds: number;
   last_maintenance_at: number | null;
   next_maintenance_at: number | null;
+  current_operator?: string | null;
+  current_operators?: string[] | null;
   created_at: number;
   updated_at: number;
 };
@@ -76,6 +78,8 @@ export type ProductionOrderRow = {
   line_code?: string;
   machine_id: string | null;
   machine_code?: string | null;
+  assigned_machines?: string[] | null;
+  assigned_workers?: string[] | null;
   target_quantity: number;
   produced_quantity: number;
   rejected_quantity: number;
