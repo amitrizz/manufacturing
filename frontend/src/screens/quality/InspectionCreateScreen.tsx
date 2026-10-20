@@ -16,7 +16,10 @@ import { Card } from '../../components/common/Card';
 import { Screen } from '../../components/common/Screen';
 import { ViewModeBanner } from '../../components/common/ViewModeBanner';
 import { listMachines } from '../../database/repositories/machineRepository';
-import { getProductionOrderById } from '../../database/repositories/productionOrderRepository';
+import {
+  getProductionOrderById,
+  listProductionOrders,
+} from '../../database/repositories/productionOrderRepository';
 import { listOrdersWaitingForQc } from '../../database/repositories/qualityRepository';
 import { startProduction, updatePreProductionQc } from '../../services/productionService';
 import { useAuthStore } from '../../store/authStore';
@@ -41,6 +44,9 @@ export function InspectionCreateScreen({ navigation, route }: Props) {
 
   const [submitting, setSubmitting] = useState(false);
   const [pendingOrders, setPendingOrders] = useState<ProductionOrderRow[]>([]);
+  const [allOrders, setAllOrders] = useState<ProductionOrderRow[]>([]);
+  const [filterMode, setFilterMode] = useState<'waiting' | 'all'>('waiting');
+  const [searchOrderQuery, setSearchOrderQuery] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState<string>(route.params?.orderId ?? '');
   const [selectedOrder, setSelectedOrder] = useState<ProductionOrderRow | null>(null);
 
@@ -56,20 +62,54 @@ export function InspectionCreateScreen({ navigation, route }: Props) {
   const [machineParametersSet, setMachineParametersSet] = useState(true);
   const [safetyGuardsActive, setSafetyGuardsActive] = useState(true);
 
+  const paramOrderId = route.params?.orderId;
+
   const loadOrders = useCallback(async () => {
-    const waiting = await listOrdersWaitingForQc();
-    setPendingOrders(waiting);
+    try {
+      const [waiting, all] = await Promise.all([
+        listOrdersWaitingForQc().catch(() => []),
+        listProductionOrders().catch(() => []),
+      ]);
+      setAllOrders(all);
 
-    const targetId = route.params?.orderId || (waiting[0]?.id ?? '');
-    setSelectedOrderId(targetId);
+      let ordersList = waiting.length > 0 ? waiting : all.filter((o) => o.status !== 'CANCELLED');
 
-    if (targetId) {
-      const order = await getProductionOrderById(targetId);
-      setSelectedOrder(order);
-    } else {
-      setSelectedOrder(null);
+      const targetId = paramOrderId;
+      if (targetId) {
+        const targetOrder =
+          all.find(
+            (o) =>
+              String(o.id || (o as any)._id) === String(targetId) ||
+              o.order_number?.toLowerCase() === String(targetId).toLowerCase()
+          ) || (await getProductionOrderById(targetId));
+
+        if (
+          targetOrder &&
+          !ordersList.some(
+            (o) =>
+              String(o.id || (o as any)._id) ===
+              String(targetOrder.id || (targetOrder as any)._id)
+          )
+        ) {
+          ordersList = [targetOrder, ...ordersList];
+        }
+      }
+
+      setPendingOrders(ordersList);
+
+      const chosenId = targetId || ordersList[0]?.id || (ordersList[0] as any)?._id || '';
+      setSelectedOrderId(chosenId);
+
+      if (chosenId) {
+        const order = await getProductionOrderById(chosenId);
+        setSelectedOrder(order);
+      } else {
+        setSelectedOrder(null);
+      }
+    } catch (e) {
+      console.warn('loadOrders error:', e);
     }
-  }, [route.params?.orderId]);
+  }, [paramOrderId]);
 
   useEffect(() => {
     loadOrders();
@@ -80,6 +120,20 @@ export function InspectionCreateScreen({ navigation, route }: Props) {
     const order = await getProductionOrderById(orderId);
     setSelectedOrder(order);
   };
+
+  const displayedOrders = useMemo(() => {
+    let source = filterMode === 'waiting' && pendingOrders.length > 0 ? pendingOrders : allOrders;
+    if (searchOrderQuery.trim()) {
+      const q = searchOrderQuery.trim().toLowerCase();
+      source = source.filter(
+        (o) =>
+          o.order_number?.toLowerCase().includes(q) ||
+          o.product_name?.toLowerCase().includes(q) ||
+          o.product_code?.toLowerCase().includes(q)
+      );
+    }
+    return source;
+  }, [filterMode, pendingOrders, allOrders, searchOrderQuery]);
 
   const handleApproveInspection = async (startNow = startImmediately) => {
     if (isViewOnly) {
@@ -248,25 +302,70 @@ export function InspectionCreateScreen({ navigation, route }: Props) {
 
       {/* 1. Order Selector Carousel */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>
-          Orders Waiting for QC ({pendingOrders.length})
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <Text style={styles.sectionTitle}>
+            {filterMode === 'waiting'
+              ? `Orders Waiting QC (${pendingOrders.length})`
+              : `All Orders (${allOrders.length})`}
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <Pressable
+              onPress={() => setFilterMode('waiting')}
+              style={[styles.modePill, filterMode === 'waiting' && styles.modePillActive]}
+            >
+              <Text style={[styles.modePillText, filterMode === 'waiting' && styles.modePillTextActive]}>
+                Waiting QC
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setFilterMode('all')}
+              style={[styles.modePill, filterMode === 'all' && styles.modePillActive]}
+            >
+              <Text style={[styles.modePillText, filterMode === 'all' && styles.modePillTextActive]}>
+                All Orders
+              </Text>
+            </Pressable>
+          </View>
+        </View>
         <Text style={styles.sectionHint}>Select an order to inspect</Text>
       </View>
 
-      {pendingOrders.length === 0 ? (
+      {/* Search Input */}
+      {(allOrders.length > 2 || pendingOrders.length > 2) && (
+        <View style={styles.searchBox}>
+          <Ionicons name="search" size={15} color={colors.textMuted} />
+          <TextInput
+            placeholder="Search order number or product..."
+            value={searchOrderQuery}
+            onChangeText={setSearchOrderQuery}
+            style={styles.searchInput}
+            placeholderTextColor={colors.textMuted}
+          />
+          {searchOrderQuery ? (
+            <Pressable onPress={() => setSearchOrderQuery('')}>
+              <Ionicons name="close-circle" size={15} color={colors.textMuted} />
+            </Pressable>
+          ) : null}
+        </View>
+      )}
+
+      {displayedOrders.length === 0 ? (
         <Card style={styles.emptyCard}>
           <Ionicons name="checkmark-done-circle-outline" size={36} color={colors.success} />
-          <Text style={styles.emptyCardTitle}>No Orders Waiting for Quality Check</Text>
+          <Text style={styles.emptyCardTitle}>No Orders Found</Text>
           <Text style={styles.emptyCardSubtitle}>
-            All pending orders have already passed pre-production quality checks.
+            {filterMode === 'waiting'
+              ? 'No orders are currently waiting for pre-production quality check.'
+              : 'No matching production orders found.'}
           </Text>
-          <Button
-            label="View Production Orders"
-            variant="secondary"
-            onPress={() => navigation.navigate('ProductionOrders')}
-            style={{ marginTop: 10 }}
-          />
+          {filterMode === 'waiting' && allOrders.length > 0 && (
+            <Button
+              label="Switch to All Orders"
+              variant="secondary"
+              onPress={() => setFilterMode('all')}
+              style={{ marginTop: 10 }}
+            />
+          )}
         </Card>
       ) : (
         <ScrollView
@@ -274,13 +373,14 @@ export function InspectionCreateScreen({ navigation, route }: Props) {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.orderCarousel}
         >
-          {pendingOrders.map((o) => {
-            const isSelected = o.id === selectedOrderId;
+          {displayedOrders.map((o) => {
+            const isSelected = (o.id || (o as any)._id) === selectedOrderId;
+            const orderKey = o.id || (o as any)._id;
             return (
               <Pressable
-                key={o.id}
+                key={orderKey}
                 style={[styles.orderChip, isSelected && styles.orderChipSelected]}
-                onPress={() => handleSelectOrder(o.id)}
+                onPress={() => handleSelectOrder(orderKey)}
               >
                 <View style={styles.orderChipTop}>
                   <Text style={[styles.orderChipNum, isSelected && styles.orderChipNumSelected]}>
@@ -598,6 +698,44 @@ const styles = StyleSheet.create({
   sectionHint: {
     fontSize: 11.5,
     color: colors.textMuted,
+  },
+  modePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  modePillActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  modePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  modePillTextActive: {
+    color: '#FFFFFF',
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 8,
+    marginBottom: spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 12.5,
+    color: colors.text,
+    padding: 0,
   },
   orderCarousel: {
     gap: 10,

@@ -206,13 +206,32 @@ export async function searchInspectionsByBatch(
 
 export async function listOrdersWaitingForQc(): Promise<ProductionOrderRow[]> {
   try {
-    const orders = await mongoApi.listProductionOrders();
-    return orders.filter(
+    const orders = (await mongoApi.listProductionOrders()) || [];
+    const normalized = orders.map((o) => ({
+      ...o,
+      id: o.id || o._id,
+    })) as ProductionOrderRow[];
+
+    // 1. Primary: Pending or Planned orders with no QC or pending/failed QC
+    const pendingQc = normalized.filter(
       (o) =>
-        (o.status === 'PENDING' || o.status === 'PLANNED') &&
+        (o.status === 'PENDING' || (o.status as string) === 'PLANNED') &&
         (!o.qc_status || o.qc_status === 'PENDING' || o.qc_status === 'FAILED')
-    ) as ProductionOrderRow[];
+    );
+    if (pendingQc.length > 0) return pendingQc;
+
+    // 2. Secondary: Any active orders that haven't passed QC
+    const activeUnpassed = normalized.filter(
+      (o) =>
+        o.status !== 'CANCELLED' &&
+        (!o.qc_status || o.qc_status === 'PENDING' || o.qc_status === 'FAILED')
+    );
+    if (activeUnpassed.length > 0) return activeUnpassed;
+
+    // 3. Fallback: Any active orders available for inspection
+    return normalized.filter((o) => o.status !== 'CANCELLED');
   } catch {
     return [];
   }
 }
+

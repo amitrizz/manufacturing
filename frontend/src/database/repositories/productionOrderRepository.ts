@@ -48,7 +48,13 @@ export async function getProductionOrderById(
 ): Promise<ProductionOrderRow | null> {
   try {
     const orders = await mongoApi.listProductionOrders();
-    const found = orders.find((o) => o.id === id || o._id === id);
+    const target = String(id || '').trim().toLowerCase();
+    const found = orders.find(
+      (o) =>
+        String(o.id || '').toLowerCase() === target ||
+        String(o._id || '').toLowerCase() === target ||
+        String(o.order_number || '').toLowerCase() === target
+    );
     if (found) return found as ProductionOrderRow;
 
     return await mongoApi.getById<ProductionOrderRow>('production_orders', id);
