@@ -153,43 +153,24 @@ export type UpdateMaterialInput = {
   maximum_stock: number;
 };
 
-export async function updateMaterial(input: UpdateMaterialInput): Promise<void> {
-  const db = await getDatabase();
+export async function updateMaterial(
+  input: Omit<MaterialRow, 'current_stock' | 'updated_at'>,
+): Promise<void> {
   const now = Date.now();
-  await db.runAsync(
-    `UPDATE materials SET code = ?, name = ?, category = ?, unit = ?, minimum_stock = ?, maximum_stock = ?, updated_at = ?
-     WHERE id = ?`,
-    input.code.trim(),
-    input.name.trim(),
-    input.category.trim(),
-    input.unit.trim(),
-    input.minimum_stock,
-    input.maximum_stock,
-    now,
-    input.id,
-  );
+  await mongoApi.update('materials', input.id, {
+    code: input.code.trim(),
+    name: input.name.trim(),
+    category: input.category.trim(),
+    unit: input.unit.trim(),
+    minimum_stock: input.minimum_stock,
+    maximum_stock: input.maximum_stock,
+    updated_at: now,
+  });
   notifyDataChanged();
 }
 
 export async function deleteMaterial(id: string): Promise<void> {
-  const db = await getDatabase();
-  // Check if material is used in active BOMs
-  const bomUsage = await db.getFirstAsync<{ count: number }>(
-    `SELECT COUNT(*) as count FROM bom_items WHERE material_id = ?`,
-    id,
-  );
-  if (bomUsage && bomUsage.count > 0) {
-    throw new Error(
-      `Cannot delete: this material is used in ${bomUsage.count} product BOM(s). Remove it from the BOM first.`,
-    );
-  }
-
-  await db.withTransactionAsync(async () => {
-    // Delete stock transactions referencing this material
-    await db.runAsync(`DELETE FROM stock_transactions WHERE material_id = ?`, id);
-    // Delete material
-    await db.runAsync(`DELETE FROM materials WHERE id = ?`, id);
-  });
+  await mongoApi.delete('materials', id);
   notifyDataChanged();
 }
 
@@ -204,7 +185,6 @@ export type CreateMaterialInput = {
 };
 
 export async function createMaterial(input: CreateMaterialInput): Promise<MaterialRow> {
-  const db = await getDatabase();
   const id = newId();
   const now = Date.now();
   const cat = input.category?.trim() || 'RAW_MATERIAL';
@@ -213,21 +193,8 @@ export async function createMaterial(input: CreateMaterialInput): Promise<Materi
   const min = input.minimum_stock ?? 0;
   const max = input.maximum_stock ?? 1000;
 
-  await db.runAsync(
-    `INSERT INTO materials (id, code, name, category, unit, current_stock, minimum_stock, maximum_stock, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    id,
-    input.code.trim(),
-    input.name.trim(),
-    cat,
-    unit,
-    stock,
-    min,
-    max,
-    now,
-  );
-  notifyDataChanged();
-  return {
+  const doc = {
+    _id: id,
     id,
     code: input.code.trim(),
     name: input.name.trim(),
@@ -237,5 +204,10 @@ export async function createMaterial(input: CreateMaterialInput): Promise<Materi
     minimum_stock: min,
     maximum_stock: max,
     updated_at: now,
+    created_at: now,
   };
+
+  await mongoApi.insert('materials', doc);
+  notifyDataChanged();
+  return doc as MaterialRow;
 }

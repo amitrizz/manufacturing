@@ -1,8 +1,7 @@
 import type { StockCategory, StockTransactionRow, StockTransactionType } from '../../types/database';
 import { newId } from '../../utils/id';
 import { notifyDataChanged } from '../../store/dataRefreshStore';
-import { getDatabase } from '../client';
-import { insertActivity } from './activityRepository';
+import { mongoApi } from '../../api/client';
 
 export type StockTransactionFilters = {
   category?: StockCategory;
@@ -15,41 +14,35 @@ export type StockTransactionFilters = {
 export async function listStockTransactions(
   filters: StockTransactionFilters = {},
 ): Promise<StockTransactionRow[]> {
-  const db = await getDatabase();
-  const clauses: string[] = [];
-  const params: (string | number)[] = [];
+  try {
+    const [txs, materials, products] = await Promise.all([
+      mongoApi.getCollection<any>('stock_transactions'),
+      mongoApi.getCollection<any>('materials'),
+      mongoApi.getCollection<any>('products'),
+    ]);
 
-  if (filters.category) {
-    clauses.push('st.category = ?');
-    params.push(filters.category);
-  }
-  if (filters.transactionType) {
-    clauses.push('st.transaction_type = ?');
-    params.push(filters.transactionType);
-  }
-  if (filters.materialId) {
-    clauses.push('st.material_id = ?');
-    params.push(filters.materialId);
-  }
-  if (filters.productId) {
-    clauses.push('st.product_id = ?');
-    params.push(filters.productId);
-  }
+    const matMap = new Map(materials.map((m) => [m.id || m._id, m.name]));
+    const prodMap = new Map(products.map((p) => [p.id || p._id, p.name]));
 
-  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-  const limit = filters.limit ?? 50;
+    let result = txs.map((st) => ({
+      ...st,
+      id: st.id || st._id,
+      material_name: matMap.get(st.material_id) || undefined,
+      product_name: prodMap.get(st.product_id) || undefined,
+    }));
 
-  return db.getAllAsync<StockTransactionRow>(
-    `SELECT st.*, m.name as material_name, p.name as product_name
-     FROM stock_transactions st
-     LEFT JOIN materials m ON st.material_id = m.id
-     LEFT JOIN products p ON st.product_id = p.id
-     ${where}
-     ORDER BY st.created_at DESC
-     LIMIT ?`,
-    ...params,
-    limit,
-  );
+    if (filters.category) result = result.filter((t) => t.category === filters.category);
+    if (filters.transactionType) result = result.filter((t) => t.transaction_type === filters.transactionType);
+    if (filters.materialId) result = result.filter((t) => t.material_id === filters.materialId);
+    if (filters.productId) result = result.filter((t) => t.product_id === filters.productId);
+
+    return result
+      .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))
+      .slice(0, filters.limit ?? 50);
+  } catch (err) {
+    console.warn('MongoDB listStockTransactions error:', err);
+    return [];
+  }
 }
 
 export type RecordStockMovementInput = {
@@ -68,58 +61,46 @@ export type RecordStockMovementInput = {
 export async function recordStockMovement(input: RecordStockMovementInput): Promise<string> {
   const id = newId();
   const now = Date.now();
-  const db = await getDatabase();
 
-  await db.withTransactionAsync(async () => {
-    // 1. Insert transaction
-    await db.runAsync(
-      `INSERT INTO stock_transactions (
-        id, material_id, product_id, transaction_type, category, quantity, batch_lot, reference_type, reference_id, performed_by, notes, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      id,
-      input.material_id || null,
-      input.product_id || null,
-      input.transaction_type,
-      input.category,
-      input.quantity,
-      input.batch_lot?.trim() || null,
-      input.reference_type?.trim() || null,
-      input.reference_id?.trim() || null,
-      input.performed_by?.trim() || null,
-      input.notes?.trim() || null,
-      now,
-    );
-
-    // 2. Adjust balance in materials if material_id is present
-    if (input.material_id) {
-      const delta = input.transaction_type === 'IN' ? input.quantity : -input.quantity;
-      await db.runAsync(
-        'UPDATE materials SET current_stock = MAX(0, current_stock + ?), updated_at = ? WHERE id = ?',
-        delta,
-        now,
-        input.material_id,
-      );
-    }
-
-    // 3. Adjust finished goods if product_id is present
-    if (input.product_id && input.category === 'FINISHED_GOODS') {
-      const delta = input.transaction_type === 'IN' ? input.quantity : -input.quantity;
-      await db.runAsync(
-        'UPDATE finished_goods SET available_quantity = MAX(0, available_quantity + ?), updated_at = ? WHERE product_id = ?',
-        delta,
-        now,
-        input.product_id,
-      );
-    }
-
-    await insertActivity({
-      event_type: 'STOCK_ADJUSTMENT',
-      title: `Stock ${input.transaction_type}: ${input.quantity} units`,
-      description: input.notes || `${input.category} movement`,
-      reference_type: 'STOCK',
-      reference_id: id,
-    });
+  await mongoApi.insert('stock_transactions', {
+    _id: id,
+    id,
+    material_id: input.material_id || null,
+    product_id: input.product_id || null,
+    transaction_type: input.transaction_type,
+    category: input.category,
+    quantity: input.quantity,
+    batch_lot: input.batch_lot?.trim() || null,
+    reference_type: input.reference_type?.trim() || null,
+    reference_id: input.reference_id?.trim() || null,
+    performed_by: input.performed_by?.trim() || null,
+    notes: input.notes?.trim() || null,
+    created_at: now,
   });
+
+  if (input.material_id) {
+    const mat = await mongoApi.getById<any>('materials', input.material_id).catch(() => null);
+    if (mat) {
+      const current = mat.current_stock || 0;
+      const delta = input.transaction_type === 'IN' ? input.quantity : -input.quantity;
+      await mongoApi.update('materials', input.material_id, {
+        current_stock: Math.max(0, current + delta),
+        updated_at: now,
+      });
+    }
+  }
+
+  await mongoApi
+    .insert('activity_history', {
+      event_type: 'STOCK_MOVEMENT',
+      title: `${input.transaction_type} ${input.quantity} units`,
+      description: input.notes || `Stock movement for ${input.category}`,
+      reference_type: 'stock_transaction',
+      reference_id: id,
+      timestamp: now,
+      created_at: now,
+    })
+    .catch(() => {});
 
   notifyDataChanged();
   return id;

@@ -76,41 +76,73 @@ export async function createPurchaseRequest(input: {
 
 // --- Purchase Orders ---
 export async function listPurchaseOrders(status?: PurchaseOrderStatus): Promise<PurchaseOrderRow[]> {
-  const db = await getDatabase();
-  const filterSql = status ? 'WHERE po.status = ?' : '';
-  const params = status ? [status] : [];
+  try {
+    const [pos, suppliers, items] = await Promise.all([
+      mongoApi.getCollection<any>('purchase_orders'),
+      mongoApi.getCollection<any>('suppliers'),
+      mongoApi.getCollection<any>('purchase_order_items'),
+    ]);
 
-  return db.getAllAsync<PurchaseOrderRow>(
-    `SELECT po.*, s.name as supplier_name,
-            (SELECT COUNT(*) FROM purchase_order_items poi WHERE poi.po_id = po.id) as items_count
-     FROM purchase_orders po
-     JOIN suppliers s ON po.supplier_id = s.id
-     ${filterSql}
-     ORDER BY po.created_at DESC`,
-    ...params,
-  );
+    const supMap = new Map(suppliers.map((s) => [s.id || s._id, s.name]));
+    const countMap: Record<string, number> = {};
+    for (const it of items) {
+      if (it.po_id) {
+        countMap[it.po_id] = (countMap[it.po_id] || 0) + 1;
+      }
+    }
+
+    let result = pos.map((po) => ({
+      ...po,
+      supplier_name: supMap.get(po.supplier_id) || 'Unknown Supplier',
+      items_count: countMap[po.id || po._id] || 0,
+    }));
+
+    if (status) {
+      result = result.filter((p) => p.status === status);
+    }
+    return result as PurchaseOrderRow[];
+  } catch (err) {
+    console.warn('MongoDB listPurchaseOrders error:', err);
+    return [];
+  }
 }
 
 export async function getPurchaseOrderById(id: string): Promise<PurchaseOrderRow | null> {
-  const db = await getDatabase();
-  return db.getFirstAsync<PurchaseOrderRow>(
-    `SELECT po.*, s.name as supplier_name
-     FROM purchase_orders po
-     JOIN suppliers s ON po.supplier_id = s.id
-     WHERE po.id = ?`,
-    id,
-  );
+  try {
+    const [po, suppliers] = await Promise.all([
+      mongoApi.getById<any>('purchase_orders', id),
+      mongoApi.getCollection<any>('suppliers'),
+    ]);
+    if (!po) return null;
+    const sup = suppliers.find((s) => s.id === po.supplier_id || s._id === po.supplier_id);
+    return {
+      ...po,
+      supplier_name: sup?.name || 'Unknown Supplier',
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function getPurchaseOrderItems(poId: string): Promise<PurchaseOrderItemRow[]> {
-  const db = await getDatabase();
-  return db.getAllAsync<PurchaseOrderItemRow>(
-    `SELECT poi.*, m.code as material_code, m.name as material_name, m.unit as material_unit
-     FROM purchase_order_items poi
-     JOIN materials m ON poi.material_id = m.id
-     WHERE poi.po_id = ?`,
-    poId,
-  );
+  try {
+    const [items, materials] = await Promise.all([
+      mongoApi.getCollection<any>('purchase_order_items', { po_id: poId }),
+      mongoApi.getCollection<any>('materials'),
+    ]);
+    const matMap = new Map(materials.map((m) => [m.id || m._id, m]));
+    return items.map((it) => {
+      const mat = matMap.get(it.material_id);
+      return {
+        ...it,
+        material_code: mat?.code || '',
+        material_name: mat?.name || 'Material',
+        material_unit: mat?.unit || 'units',
+      };
+    });
+  } catch {
+    return [];
+  }
 }
 
 export type CreatePoItemInput = {
@@ -128,12 +160,9 @@ export async function createPurchaseOrder(input: {
 }): Promise<string> {
   const id = newId();
   const now = Date.now();
-  const db = await getDatabase();
 
-  const countRow = await db.getFirstAsync<{ count: number }>(
-    'SELECT count(*) as count FROM purchase_orders',
-  );
-  const seq = ((countRow?.count ?? 0) + 1).toString().padStart(4, '0');
+  const existingOrders = await mongoApi.getCollection<any>('purchase_orders').catch(() => []);
+  const seq = (existingOrders.length + 1).toString().padStart(4, '0');
   const poNumber = `PO-${seq}`;
 
   let totalAmount = 0;
@@ -146,49 +175,49 @@ export async function createPurchaseOrder(input: {
     taxAmount += lineTax;
   }
 
-  await db.withTransactionAsync(async () => {
-    await db.runAsync(
-      `INSERT INTO purchase_orders (
-        id, po_number, supplier_id, status, expected_date, total_amount, tax_amount, terms, created_at, updated_at
-      ) VALUES (?, ?, ?, 'ISSUED', ?, ?, ?, ?, ?, ?)`,
-      id,
-      poNumber,
-      input.supplier_id,
-      input.expected_date,
-      totalAmount,
-      taxAmount,
-      input.terms?.trim() || null,
-      now,
-      now,
-    );
-
-    for (const item of input.items) {
-      const itemId = newId();
-      await db.runAsync(
-        `INSERT INTO purchase_order_items (
-          id, po_id, material_id, quantity, unit_rate, tax_pct, received_quantity
-        ) VALUES (?, ?, ?, ?, ?, ?, 0)`,
-        itemId,
-        id,
-        item.material_id,
-        item.quantity,
-        item.unit_rate,
-        item.tax_pct ?? 0,
-      );
-    }
-
-    await insertActivity({
-      event_type: 'PURCHASE_ORDER_ISSUED',
-      title: `Purchase order ${poNumber} issued`,
-      description: `Total: ₹${totalAmount.toFixed(2)}`,
-      reference_type: 'PURCHASE_ORDER',
-      reference_id: id,
-    });
+  await mongoApi.insert('purchase_orders', {
+    _id: id,
+    id,
+    po_number: poNumber,
+    supplier_id: input.supplier_id,
+    status: 'ISSUED',
+    expected_date: input.expected_date,
+    total_amount: totalAmount,
+    tax_amount: taxAmount,
+    terms: input.terms?.trim() || null,
+    created_at: now,
+    updated_at: now,
   });
+
+  for (const item of input.items) {
+    const itemId = newId();
+    await mongoApi.insert('purchase_order_items', {
+      _id: itemId,
+      id: itemId,
+      po_id: id,
+      material_id: item.material_id,
+      quantity: item.quantity,
+      unit_rate: item.unit_rate,
+      tax_pct: item.tax_pct ?? 0,
+      received_quantity: 0,
+      created_at: now,
+    });
+  }
+
+  await mongoApi.insert('activity_history', {
+    event_type: 'PO_CREATED',
+    title: `Purchase order ${poNumber}`,
+    description: `Total: ${totalAmount}`,
+    reference_type: 'PURCHASE_ORDER',
+    reference_id: id,
+    timestamp: now,
+    created_at: now,
+  }).catch(() => {});
 
   notifyDataChanged();
   return id;
 }
+
 
 // --- GRN (Goods Received Note) Receipt & Stock In ---
 export async function receiveGrn(input: {

@@ -1,28 +1,35 @@
 import type { ProductRow } from '../../types/database';
 import { newId } from '../../utils/id';
 import { notifyDataChanged } from '../../store/dataRefreshStore';
-import { getDatabase } from '../client';
-import { insertActivity } from './activityRepository';
+import { mongoApi } from '../../api/client';
 
 export async function listProducts(): Promise<ProductRow[]> {
-  const db = await getDatabase();
-  return db.getAllAsync<ProductRow>('SELECT * FROM products ORDER BY code');
+  try {
+    const list = await mongoApi.getCollection<ProductRow>('products');
+    if (list && Array.isArray(list)) {
+      return list.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+    }
+  } catch (err) {
+    console.warn('MongoDB listProducts error:', err);
+  }
+  return [];
 }
 
 export async function getProductById(id: string): Promise<ProductRow | null> {
-  const db = await getDatabase();
-  return db.getFirstAsync<ProductRow>('SELECT * FROM products WHERE id = ?', id);
+  try {
+    return await mongoApi.getById<ProductRow>('products', id);
+  } catch {
+    const all = await listProducts();
+    return all.find((p) => p.id === id || (p as any)._id === id) || null;
+  }
 }
 
 export async function searchProducts(query: string, limit = 20): Promise<ProductRow[]> {
-  const db = await getDatabase();
-  const q = `%${query}%`;
-  return db.getAllAsync<ProductRow>(
-    'SELECT * FROM products WHERE name LIKE ? OR code LIKE ? ORDER BY code LIMIT ?',
-    q,
-    q,
-    limit,
-  );
+  const all = await listProducts();
+  const q = query.toLowerCase();
+  return all
+    .filter((p) => p.name?.toLowerCase().includes(q) || p.code?.toLowerCase().includes(q))
+    .slice(0, limit);
 }
 
 export type CreateProductBomLine = {
@@ -53,69 +60,71 @@ export async function createProductWithBom(input: CreateProductInput): Promise<s
     }
   }
 
-  const db = await getDatabase();
+  const existingProducts = await listProducts();
+  if (existingProducts.some((p) => p.code?.toUpperCase() === code.toUpperCase())) {
+    throw new Error(`Product code ${code} already exists`);
+  }
+
   const productId = newId();
   const bomId = newId();
   const now = Date.now();
 
-  const existing = await db.getFirstAsync<{ id: string }>(
-    'SELECT id FROM products WHERE code = ?',
+  await mongoApi.insert('products', {
+    _id: productId,
+    id: productId,
     code,
-  );
-  if (existing) throw new Error(`Product code ${code} already exists`);
-
-  await db.withTransactionAsync(async () => {
-    await db.runAsync(
-      `INSERT INTO products (id, code, name, category_id, unit, description, created_at)
-       VALUES (?, ?, ?, NULL, ?, ?, ?)`,
-      productId,
-      code,
-      name,
-      input.unit.trim(),
-      input.description?.trim() ?? null,
-      now,
-    );
-
-    await db.runAsync(
-      'INSERT INTO bom (id, product_id, version, is_active, created_at) VALUES (?, ?, ?, 1, ?)',
-      bomId,
-      productId,
-      'v1',
-      now,
-    );
-
-    for (const line of input.bom_lines) {
-      await db.runAsync(
-        'INSERT INTO bom_items (id, bom_id, material_id, quantity, unit) VALUES (?, ?, ?, ?, ?)',
-        newId(),
-        bomId,
-        line.material_id,
-        line.quantity,
-        line.unit,
-      );
-    }
-
-    await db.runAsync(
-      `INSERT INTO finished_goods (
-        id, product_id, produced_quantity, quality_passed_quantity,
-        rejected_quantity, rework_quantity, available_quantity, updated_at
-      ) VALUES (?, ?, 0, 0, 0, 0, 0, ?)`,
-      newId(),
-      productId,
-      now,
-    );
-
-    await insertActivity(
-      {
-        event_type: 'PRODUCT_CREATED',
-        title: `Product created: ${code}`,
-        description: `${input.bom_lines.length} material(s) on BOM`,
-        reference_type: 'product',
-        reference_id: productId,
-      },
-      db,
-    );
+    name,
+    category_id: null,
+    unit: input.unit.trim(),
+    description: input.description?.trim() ?? null,
+    created_at: now,
+    updated_at: now,
   });
+
+  await mongoApi.insert('bom', {
+    _id: bomId,
+    id: bomId,
+    product_id: productId,
+    version: 'v1',
+    is_active: 1,
+    created_at: now,
+  });
+
+  for (const line of input.bom_lines) {
+    const itemId = newId();
+    await mongoApi.insert('bom_items', {
+      _id: itemId,
+      id: itemId,
+      bom_id: bomId,
+      material_id: line.material_id,
+      quantity: line.quantity,
+      unit: line.unit,
+    });
+  }
+
+  await mongoApi.insert('finished_goods', {
+    _id: newId(),
+    id: newId(),
+    product_id: productId,
+    produced_quantity: 0,
+    quality_passed_quantity: 0,
+    rejected_quantity: 0,
+    rework_quantity: 0,
+    available_quantity: 0,
+    updated_at: now,
+  });
+
+  await mongoApi
+    .insert('activity_history', {
+      event_type: 'PRODUCT_CREATED',
+      title: `Product created: ${code}`,
+      description: `${input.bom_lines.length} material(s) on BOM`,
+      reference_type: 'product',
+      reference_id: productId,
+      timestamp: now,
+      created_at: now,
+    })
+    .catch(() => {});
 
   notifyDataChanged();
   return productId;
@@ -144,112 +153,106 @@ export async function updateProductWithBom(input: UpdateProductInput): Promise<v
     }
   }
 
-  const db = await getDatabase();
-  const existing = await getProductById(input.product_id);
-  if (!existing) throw new Error('Product not found');
-
-  const codeTaken = await db.getFirstAsync<{ id: string }>(
-    'SELECT id FROM products WHERE code = ? AND id != ?',
-    code,
-    input.product_id,
-  );
-  if (codeTaken) throw new Error(`Product code ${code} already exists`);
+  const existingProducts = await listProducts();
+  if (
+    existingProducts.some(
+      (p) =>
+        p.code?.toUpperCase() === code.toUpperCase() &&
+        p.id !== input.product_id &&
+        (p as any)._id !== input.product_id
+    )
+  ) {
+    throw new Error(`Product code ${code} already exists`);
+  }
 
   const now = Date.now();
 
-  await db.withTransactionAsync(async () => {
-    await db.runAsync(
-      `UPDATE products SET code = ?, name = ?, unit = ?, description = ? WHERE id = ?`,
-      code,
-      name,
-      input.unit.trim(),
-      input.description?.trim() ?? null,
-      input.product_id,
-    );
-
-    let bom = await db.getFirstAsync<{ id: string }>(
-      'SELECT id FROM bom WHERE product_id = ? AND is_active = 1 LIMIT 1',
-      input.product_id,
-    );
-
-    let bomId = bom?.id;
-    if (!bomId) {
-      bomId = newId();
-      await db.runAsync(
-        'INSERT INTO bom (id, product_id, version, is_active, created_at) VALUES (?, ?, ?, 1, ?)',
-        bomId,
-        input.product_id,
-        'v1',
-        now,
-      );
-    }
-
-    await db.runAsync('DELETE FROM bom_items WHERE bom_id = ?', bomId);
-
-    for (const line of input.bom_lines) {
-      await db.runAsync(
-        'INSERT INTO bom_items (id, bom_id, material_id, quantity, unit) VALUES (?, ?, ?, ?, ?)',
-        newId(),
-        bomId,
-        line.material_id,
-        line.quantity,
-        line.unit,
-      );
-    }
-
-    await insertActivity(
-      {
-        event_type: 'PRODUCT_UPDATED',
-        title: `Product updated: ${code}`,
-        description: `${input.bom_lines.length} material(s) on BOM`,
-        reference_type: 'product',
-        reference_id: input.product_id,
-      },
-      db,
-    );
+  await mongoApi.update('products', input.product_id, {
+    code,
+    name,
+    unit: input.unit.trim(),
+    description: input.description?.trim() ?? null,
+    updated_at: now,
   });
+
+  // Re-sync BOM
+  const allBoms = await mongoApi.getCollection<any>('bom').catch(() => []);
+  let bom = allBoms.find(
+    (b) => b.product_id === input.product_id && (b.is_active === 1 || b.is_active === true)
+  );
+  let bomId = bom?.id || bom?._id;
+  if (!bomId) {
+    bomId = newId();
+    await mongoApi.insert('bom', {
+      _id: bomId,
+      id: bomId,
+      product_id: input.product_id,
+      version: 'v1',
+      is_active: 1,
+      created_at: now,
+    });
+  }
+
+  // Delete existing bom items
+  const allBomItems = await mongoApi.getCollection<any>('bom_items', { bom_id: bomId }).catch(() => []);
+  for (const item of allBomItems) {
+    const itId = item.id || item._id;
+    if (itId) await mongoApi.delete('bom_items', itId).catch(() => {});
+  }
+
+  for (const line of input.bom_lines) {
+    const itemId = newId();
+    await mongoApi.insert('bom_items', {
+      _id: itemId,
+      id: itemId,
+      bom_id: bomId,
+      material_id: line.material_id,
+      quantity: line.quantity,
+      unit: line.unit,
+    });
+  }
+
+  await mongoApi
+    .insert('activity_history', {
+      event_type: 'PRODUCT_UPDATED',
+      title: `Product updated: ${code}`,
+      description: `${input.bom_lines.length} material(s) on BOM`,
+      reference_type: 'product',
+      reference_id: input.product_id,
+      timestamp: now,
+      created_at: now,
+    })
+    .catch(() => {});
 
   notifyDataChanged();
 }
 
 export async function deleteProduct(productId: string): Promise<void> {
-  const db = await getDatabase();
-  // Check if product has active production orders
-  const activeOrders = await db.getFirstAsync<{ count: number }>(
-    `SELECT COUNT(*) as count FROM production_orders WHERE product_id = ? AND status IN ('PENDING', 'IN_PROGRESS')`,
-    productId,
+  const activeOrders = await mongoApi.listProductionOrders();
+  const usingOrders = activeOrders.filter(
+    (o) =>
+      o.product_id === productId &&
+      (o.status === 'PENDING' || o.status === 'IN_PROGRESS')
   );
-  if (activeOrders && activeOrders.count > 0) {
+  if (usingOrders.length > 0) {
     throw new Error(
-      `Cannot delete: product is used in ${activeOrders.count} active or in-progress order(s).`,
+      `Cannot delete: product is used in ${usingOrders.length} active or in-progress order(s).`
     );
   }
 
-  await db.withTransactionAsync(async () => {
-    // Delete from bom_items
-    await db.runAsync(
-      `DELETE FROM bom_items WHERE bom_id IN (SELECT id FROM bom WHERE product_id = ?)`,
-      productId,
-    );
-    // Delete from bom
-    await db.runAsync(`DELETE FROM bom WHERE product_id = ?`, productId);
-    // Delete from finished_goods
-    await db.runAsync(`DELETE FROM finished_goods WHERE product_id = ?`, productId);
-    // Delete product
-    await db.runAsync(`DELETE FROM products WHERE id = ?`, productId);
+  await mongoApi.delete('products', productId);
 
-    await insertActivity(
-      {
-        event_type: 'PRODUCT_DELETED',
-        title: `Product deleted: ${productId}`,
-        description: 'Product removed from system',
-        reference_type: 'product',
-        reference_id: productId,
-      },
-      db,
-    );
-  });
+  await mongoApi
+    .insert('activity_history', {
+      event_type: 'PRODUCT_DELETED',
+      title: `Product deleted: ${productId}`,
+      description: 'Product removed from system',
+      reference_type: 'product',
+      reference_id: productId,
+      timestamp: Date.now(),
+      created_at: Date.now(),
+    })
+    .catch(() => {});
 
   notifyDataChanged();
 }
-

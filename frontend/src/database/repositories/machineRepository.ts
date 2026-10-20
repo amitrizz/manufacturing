@@ -128,8 +128,15 @@ export async function getMachineProductionTotals(machineId: string): Promise<Mac
 export async function listLines(): Promise<
   { id: string; code: string; name: string }[]
 > {
-  const db = await getDatabase();
-  return db.getAllAsync('SELECT id, code, name FROM production_lines ORDER BY code');
+  try {
+    const lines = await mongoApi.getCollection<any>('production_lines');
+    if (lines && Array.isArray(lines) && lines.length > 0) {
+      return lines.map((l) => ({ id: l.id || l._id, code: l.code, name: l.name }));
+    }
+  } catch (err) {
+    console.warn('MongoDB listLines error:', err);
+  }
+  return [];
 }
 
 export type CreateLineInput = {
@@ -139,32 +146,17 @@ export type CreateLineInput = {
 };
 
 export async function createLine(input: CreateLineInput): Promise<string> {
-  const db = await getDatabase();
   const id = newId();
-  let factoryId = input.factory_id;
-  if (!factoryId) {
-    const f = await db.getFirstAsync<{ id: string }>('SELECT id FROM factories LIMIT 1');
-    factoryId = f?.id;
-    if (!factoryId) {
-      factoryId = newId();
-      await db.runAsync(
-        'INSERT INTO factories (id, name, code, location) VALUES (?, ?, ?, ?)',
-        factoryId,
-        'Main Plant',
-        'PLANT-01',
-        'HQ',
-      );
-    }
-  }
-
-  await db.runAsync(
-    'INSERT INTO production_lines (id, factory_id, code, name) VALUES (?, ?, ?, ?)',
+  const factoryId = input.factory_id || 'fac-01';
+  await mongoApi.insert('production_lines', {
+    _id: id,
     id,
-    factoryId,
-    input.code.trim().toUpperCase(),
-    input.name.trim(),
-  );
-
+    factory_id: factoryId,
+    code: input.code.trim().toUpperCase(),
+    name: input.name.trim(),
+    created_at: Date.now(),
+    updated_at: Date.now(),
+  });
   notifyDataChanged();
   return id;
 }
@@ -173,57 +165,18 @@ export async function updateLine(
   id: string,
   input: { code?: string; name?: string },
 ): Promise<void> {
-  const db = await getDatabase();
-  const existing = await db.getFirstAsync<{ id: string }>(
-    'SELECT id FROM production_lines WHERE id = ?',
-    id,
-  );
-  if (!existing) throw new Error('Production line not found');
-
-  const updates: string[] = [];
-  const params: string[] = [];
-  if (input.code) {
-    updates.push('code = ?');
-    params.push(input.code.trim().toUpperCase());
-  }
-  if (input.name) {
-    updates.push('name = ?');
-    params.push(input.name.trim());
-  }
-  if (updates.length > 0) {
-    params.push(id);
-    await db.runAsync(
-      `UPDATE production_lines SET ${updates.join(', ')} WHERE id = ?`,
-      ...params,
-    );
-    notifyDataChanged();
-  }
+  const updates: Record<string, unknown> = { updated_at: Date.now() };
+  if (input.code) updates.code = input.code.trim().toUpperCase();
+  if (input.name) updates.name = input.name.trim();
+  await mongoApi.update('production_lines', id, updates);
+  notifyDataChanged();
 }
 
 export async function deleteLine(id: string): Promise<void> {
-  const db = await getDatabase();
-  const machineCount = await db.getFirstAsync<{ count: number }>(
-    'SELECT COUNT(*) as count FROM machines WHERE line_id = ?',
-    id,
-  );
-  if (machineCount && machineCount.count > 0) {
-    throw new Error(
-      `Cannot delete line: ${machineCount.count} machine(s) are assigned to this line. Reassign them first.`,
-    );
-  }
-  const orderCount = await db.getFirstAsync<{ count: number }>(
-    'SELECT COUNT(*) as count FROM production_orders WHERE line_id = ?',
-    id,
-  );
-  if (orderCount && orderCount.count > 0) {
-    throw new Error(
-      `Cannot delete line: ${orderCount.count} production order(s) are linked to this line.`,
-    );
-  }
-
-  await db.runAsync('DELETE FROM production_lines WHERE id = ?', id);
+  await mongoApi.delete('production_lines', id);
   notifyDataChanged();
 }
+
 
 export async function searchMachines(query: string, limit = 20): Promise<MachineRow[]> {
   return listMachines({ search: query }).then((r) => r.slice(0, limit));

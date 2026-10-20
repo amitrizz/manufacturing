@@ -1,26 +1,36 @@
 import type { CustomerRow } from '../../types/database';
 import { newId } from '../../utils/id';
 import { notifyDataChanged } from '../../store/dataRefreshStore';
-import { getDatabase } from '../client';
-import { insertActivity } from './activityRepository';
+import { mongoApi } from '../../api/client';
 
 export async function listCustomers(search?: string): Promise<CustomerRow[]> {
-  const db = await getDatabase();
-  if (search && search.trim()) {
-    const q = `%${search.trim()}%`;
-    return db.getAllAsync<CustomerRow>(
-      'SELECT * FROM customers WHERE name LIKE ? OR company LIKE ? OR phone LIKE ? ORDER BY name ASC',
-      q,
-      q,
-      q,
-    );
+  try {
+    const list = await mongoApi.getCollection<CustomerRow>('customers');
+    if (list && Array.isArray(list)) {
+      if (search && search.trim()) {
+        const q = search.trim().toLowerCase();
+        return list.filter(
+          (c) =>
+            c.name?.toLowerCase().includes(q) ||
+            c.company?.toLowerCase().includes(q) ||
+            c.phone?.toLowerCase().includes(q)
+        );
+      }
+      return list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }
+  } catch (err) {
+    console.warn('MongoDB listCustomers error:', err);
   }
-  return db.getAllAsync<CustomerRow>('SELECT * FROM customers ORDER BY name ASC');
+  return [];
 }
 
 export async function getCustomerById(id: string): Promise<CustomerRow | null> {
-  const db = await getDatabase();
-  return db.getFirstAsync<CustomerRow>('SELECT * FROM customers WHERE id = ?', id);
+  try {
+    return await mongoApi.getById<CustomerRow>('customers', id);
+  } catch {
+    const all = await listCustomers();
+    return all.find((c) => c.id === id || (c as any)._id === id) || null;
+  }
 }
 
 export type CreateCustomerInput = {
@@ -37,32 +47,35 @@ export type CreateCustomerInput = {
 export async function createCustomer(input: CreateCustomerInput): Promise<string> {
   const id = newId();
   const now = Date.now();
-  const db = await getDatabase();
 
-  await db.runAsync(
-    `INSERT INTO customers (
-      id, name, company, phone, email, billing_address, delivery_address, gst_number, notes, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  const doc = {
+    _id: id,
     id,
-    input.name.trim(),
-    input.company.trim(),
-    input.phone?.trim() || null,
-    input.email?.trim() || null,
-    input.billing_address?.trim() || null,
-    input.delivery_address?.trim() || null,
-    input.gst_number?.trim() || null,
-    input.notes?.trim() || null,
-    now,
-    now,
-  );
+    name: input.name.trim(),
+    company: input.company.trim(),
+    phone: input.phone?.trim() || null,
+    email: input.email?.trim() || null,
+    billing_address: input.billing_address?.trim() || null,
+    delivery_address: input.delivery_address?.trim() || null,
+    gst_number: input.gst_number?.trim() || null,
+    notes: input.notes?.trim() || null,
+    created_at: now,
+    updated_at: now,
+  };
 
-  await insertActivity({
-    event_type: 'CUSTOMER_CREATED',
-    title: `Customer created: ${input.name}`,
-    description: `${input.company}`,
-    reference_type: 'CUSTOMER',
-    reference_id: id,
-  });
+  await mongoApi.insert('customers', doc);
+
+  await mongoApi
+    .insert('activity_history', {
+      event_type: 'CUSTOMER_CREATED',
+      title: `Customer created: ${input.name}`,
+      description: `${input.company}`,
+      reference_type: 'CUSTOMER',
+      reference_id: id,
+      timestamp: now,
+      created_at: now,
+    })
+    .catch(() => {});
 
   notifyDataChanged();
   return id;
@@ -72,46 +85,29 @@ export async function updateCustomer(
   id: string,
   input: Partial<CreateCustomerInput>,
 ): Promise<void> {
-  const db = await getDatabase();
-  const existing = await getCustomerById(id);
-  if (!existing) throw new Error('Customer not found');
-
   const now = Date.now();
-  await db.runAsync(
-    `UPDATE customers SET
-      name = ?, company = ?, phone = ?, email = ?,
-      billing_address = ?, delivery_address = ?, gst_number = ?, notes = ?, updated_at = ?
-     WHERE id = ?`,
-    input.name?.trim() ?? existing.name,
-    input.company?.trim() ?? existing.company,
-    input.phone?.trim() ?? existing.phone ?? null,
-    input.email?.trim() ?? existing.email ?? null,
-    input.billing_address?.trim() ?? existing.billing_address ?? null,
-    input.delivery_address?.trim() ?? existing.delivery_address ?? null,
-    input.gst_number?.trim() ?? existing.gst_number ?? null,
-    input.notes?.trim() ?? existing.notes ?? null,
-    now,
-    id,
-  );
+  await mongoApi.update('customers', id, {
+    ...input,
+    updated_at: now,
+  });
 
   notifyDataChanged();
 }
 
 export async function deleteCustomer(id: string): Promise<void> {
-  const db = await getDatabase();
-  const existing = await getCustomerById(id);
-  if (!existing) throw new Error('Customer not found');
+  await mongoApi.delete('customers', id);
 
-  await db.withTransactionAsync(async () => {
-    await db.runAsync('DELETE FROM customers WHERE id = ?', id);
-    await insertActivity({
+  await mongoApi
+    .insert('activity_history', {
       event_type: 'CUSTOMER_DELETED',
-      title: `Customer deleted: ${existing.name}`,
-      description: `${existing.company}`,
+      title: `Customer deleted: ${id}`,
+      description: 'Customer removed',
       reference_type: 'CUSTOMER',
       reference_id: id,
-    });
-  });
+      timestamp: Date.now(),
+      created_at: Date.now(),
+    })
+    .catch(() => {});
 
   notifyDataChanged();
 }
