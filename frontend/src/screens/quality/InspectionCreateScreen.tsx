@@ -71,37 +71,25 @@ export function InspectionCreateScreen({ navigation, route }: Props) {
         listProductionOrders().catch(() => []),
       ]);
       setAllOrders(all);
+      setPendingOrders(waiting);
 
-      let ordersList = waiting.length > 0 ? waiting : all.filter((o) => o.status !== 'CANCELLED');
+      // Determine initial selection:
+      // 1. If paramOrderId is passed, use it
+      // 2. Otherwise pick first waiting order
+      // 3. If no waiting orders, fallback to first active order
+      const activeAll = all.filter((o) => o.status !== 'CANCELLED');
+      const targetId =
+        paramOrderId ||
+        waiting[0]?.id ||
+        (waiting[0] as any)?._id ||
+        activeAll[0]?.id ||
+        (activeAll[0] as any)?._id ||
+        '';
 
-      const targetId = paramOrderId;
+      setSelectedOrderId(targetId);
+
       if (targetId) {
-        const targetOrder =
-          all.find(
-            (o) =>
-              String(o.id || (o as any)._id) === String(targetId) ||
-              o.order_number?.toLowerCase() === String(targetId).toLowerCase()
-          ) || (await getProductionOrderById(targetId));
-
-        if (
-          targetOrder &&
-          !ordersList.some(
-            (o) =>
-              String(o.id || (o as any)._id) ===
-              String(targetOrder.id || (targetOrder as any)._id)
-          )
-        ) {
-          ordersList = [targetOrder, ...ordersList];
-        }
-      }
-
-      setPendingOrders(ordersList);
-
-      const chosenId = targetId || ordersList[0]?.id || (ordersList[0] as any)?._id || '';
-      setSelectedOrderId(chosenId);
-
-      if (chosenId) {
-        const order = await getProductionOrderById(chosenId);
+        const order = await getProductionOrderById(targetId);
         setSelectedOrder(order);
       } else {
         setSelectedOrder(null);
@@ -122,7 +110,10 @@ export function InspectionCreateScreen({ navigation, route }: Props) {
   };
 
   const displayedOrders = useMemo(() => {
-    let source = filterMode === 'waiting' && pendingOrders.length > 0 ? pendingOrders : allOrders;
+    let source =
+      filterMode === 'waiting'
+        ? pendingOrders
+        : allOrders.filter((o) => o.status !== 'CANCELLED');
     if (searchOrderQuery.trim()) {
       const q = searchOrderQuery.trim().toLowerCase();
       source = source.filter(

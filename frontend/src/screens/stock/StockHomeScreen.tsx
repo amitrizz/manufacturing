@@ -275,7 +275,7 @@ export function StockHomeScreen() {
   };
 
   return (
-    <Screen>
+    <Screen scroll={false}>
       {isViewOnly && (
         <ViewModeBanner
           message="Inventory monitoring mode. Adding items, updating stock, and modifying inventory are disabled. Use the Management tab to make changes."

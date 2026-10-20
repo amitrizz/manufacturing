@@ -249,7 +249,7 @@ export function ContactsScreen() {
   };
 
   return (
-    <Screen>
+    <Screen scroll={false}>
       {/* Segmented Switcher */}
       <View style={styles.segmentContainer}>
         <Pressable

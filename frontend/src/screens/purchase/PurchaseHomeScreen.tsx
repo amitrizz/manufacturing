@@ -356,7 +356,7 @@ export function PurchaseHomeScreen() {
   };
 
   return (
-    <Screen>
+    <Screen scroll={false}>
       {/* Segment Switcher */}
       <View style={styles.segmentContainer}>
         <Pressable
