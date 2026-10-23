@@ -1,9 +1,19 @@
-# Run this in PowerShell (outside Cursor) to avoid path-length / sandbox issues.
+# Run this in PowerShell to avoid path-length / sandbox issues.
 # Optional: .\scripts\build-debug-apk.ps1 -Clean  (after CPU ABI changes; needs more RAM/time)
 param([switch]$Clean)
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $PSScriptRoot
-if (-not (Test-Path "$root\android\gradlew.bat")) { $root = (Get-Location).Path }
+$scriptDir = $PSScriptRoot
+$workspaceRoot = Split-Path -Parent $scriptDir
+if (-not (Test-Path "$workspaceRoot\frontend")) {
+  $workspaceRoot = Split-Path -Parent $workspaceRoot
+}
+if (Test-Path "$workspaceRoot\frontend\android\gradlew.bat") {
+  $root = "$workspaceRoot\frontend"
+} elseif (Test-Path "$workspaceRoot\android\gradlew.bat") {
+  $root = $workspaceRoot
+} else {
+  $root = (Get-Location).Path
+}
 
 $env:JAVA_HOME = "C:\Program Files\Java\jdk-17"
 $env:NODE_ENV = "production"
@@ -27,7 +37,7 @@ Write-Host $apk
 Write-Host ("Size: {0:N1} MB" -f ((Get-Item $apk).Length / 1MB))
 
 # Auto-detect next build number for manufacturing_<N>.apk
-$existingNums = Get-ChildItem -Path $root -Filter "manufacturing_*.apk" -ErrorAction SilentlyContinue |
+$existingNums = Get-ChildItem -Path $workspaceRoot -Filter "manufacturing_*.apk" -ErrorAction SilentlyContinue |
   ForEach-Object {
     if ($_.Name -match '^manufacturing_(\d+)\.apk$') {
       [int]$Matches[1]
@@ -40,11 +50,15 @@ if ($existingNums) {
 }
 
 $buildApkName = "manufacturing_$nextBuildNum.apk"
-$buildApkPath = "$root\$buildApkName"
-$latestApk = "$root\manufacturing.apk"
+$buildApkPath = "$workspaceRoot\$buildApkName"
+$latestApk = "$workspaceRoot\manufacturing.apk"
 
 Copy-Item -Path $apk -Destination $buildApkPath -Force
 Copy-Item -Path $apk -Destination $latestApk -Force
+if ($root -ne $workspaceRoot) {
+  Copy-Item -Path $apk -Destination "$root\$buildApkName" -Force
+  Copy-Item -Path $apk -Destination "$root\manufacturing.apk" -Force
+}
 
 Write-Host "Copied to project root as:" -ForegroundColor Green
 Write-Host "  - $buildApkName (Build #$nextBuildNum)" -ForegroundColor Green

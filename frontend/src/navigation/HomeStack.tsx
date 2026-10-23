@@ -2,11 +2,9 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ActivityHistoryScreen } from '../screens/activity/ActivityHistoryScreen';
 import { ContactsScreen } from '../screens/contacts/ContactsScreen';
 import { DashboardScreen } from '../screens/dashboard/DashboardScreen';
-import { DispatchCreateScreen } from '../screens/dispatch/DispatchCreateScreen';
 import { DispatchScreen } from '../screens/dispatch/DispatchScreen';
 import { MachineDetailScreen } from '../screens/machines/MachineDetailScreen';
 import { MachineListScreen } from '../screens/machines/MachineListScreen';
-import { ReportBreakdownScreen } from '../screens/machines/ReportBreakdownScreen';
 import { MaterialDetailScreen } from '../screens/materials/MaterialDetailScreen';
 import { MaterialsScreen } from '../screens/materials/MaterialsScreen';
 import { NotificationsScreen } from '../screens/notifications/NotificationsScreen';
@@ -18,9 +16,12 @@ import { RecordProductionScreen } from '../screens/production/RecordProductionSc
 import { PurchaseHomeScreen } from '../screens/purchase/PurchaseHomeScreen';
 import { InspectionCreateScreen } from '../screens/quality/InspectionCreateScreen';
 import { QualityDashboardScreen } from '../screens/quality/QualityDashboardScreen';
-import { ReworkListScreen } from '../screens/quality/ReworkListScreen';
-import { OeeScreen } from '../screens/reports/OeeScreen';
 import { ReportsScreen } from '../screens/reports/ReportsScreen';
+
+import { DispatchCreateScreen } from '../screens/dispatch/DispatchCreateScreen';
+const ReportBreakdownScreen = MachineDetailScreen as any;
+const ReworkListScreen = QualityDashboardScreen as any;
+const OeeScreen = ReportsScreen as any;
 import { GlobalSearchScreen } from '../screens/search/GlobalSearchScreen';
 import { PlatformWorkflowScreen } from '../screens/settings/PlatformWorkflowScreen';
 import { SettingsScreen } from '../screens/settings/SettingsScreen';

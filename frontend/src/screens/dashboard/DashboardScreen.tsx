@@ -14,15 +14,15 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import { AppHeader } from '../../components/common/AppHeader';
 import { Card } from '../../components/common/Card';
 import { Screen } from '../../components/common/Screen';
-import { listRecentActivity } from '../../database/repositories/activityRepository';
-import { listMachines } from '../../database/repositories/machineRepository';
-import { listMaterials } from '../../database/repositories/materialRepository';
-import { listProductionOrders } from '../../database/repositories/productionOrderRepository';
+import { listRecentActivity } from '../../api/repositories/activityRepository';
+import { listMachines } from '../../api/repositories/machineRepository';
+import { listMaterials } from '../../api/repositories/materialRepository';
+import { listProductionOrders } from '../../api/repositories/productionOrderRepository';
 import {
   getMonthlyProductionComparison,
   type MonthlyComparisonRow,
-} from '../../database/repositories/reportsRepository';
-import { listAttendanceForDate } from '../../database/repositories/staffRepository';
+} from '../../api/repositories/reportsRepository';
+import { listAttendanceForDate } from '../../api/repositories/staffRepository';
 import { useDashboardKpis } from '../../hooks/useDashboardKpis';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import { listActionableTasks } from '../../services/actionableTasksService';

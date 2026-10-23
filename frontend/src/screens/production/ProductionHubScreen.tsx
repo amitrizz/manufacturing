@@ -5,7 +5,7 @@ import { ListRow } from '../../components/common/ListRow';
 import { Screen } from '../../components/common/Screen';
 import { SectionHeader } from '../../components/common/SectionHeader';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
-import { listProductionOrders } from '../../database/repositories/productionOrderRepository';
+import { listProductionOrders } from '../../api/repositories/productionOrderRepository';
 import type { ProductionOrderRow } from '../../types/database';
 import type { ProductionStackParamList } from '../../navigation/types';
 import { typography } from '../../theme';

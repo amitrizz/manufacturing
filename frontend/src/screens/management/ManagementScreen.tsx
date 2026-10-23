@@ -10,16 +10,16 @@ import {
   View,
 } from 'react-native';
 import { AppHeader } from '../../components/common/AppHeader';
-import { listCustomers } from '../../database/repositories/customerRepository';
-import { listDispatchOrders } from '../../database/repositories/dispatchRepository';
-import { listMachines } from '../../database/repositories/machineRepository';
-import { listMaterials } from '../../database/repositories/materialRepository';
-import { countUnreadNotifications } from '../../database/repositories/notificationRepository';
-import { listProducts } from '../../database/repositories/productRepository';
-import { listProductionOrders } from '../../database/repositories/productionOrderRepository';
-import { listPurchaseRequests } from '../../database/repositories/purchaseRepository';
-import { listStaff } from '../../database/repositories/staffRepository';
-import { listSuppliers } from '../../database/repositories/supplierRepository';
+import { listCustomers } from '../../api/repositories/customerRepository';
+import { listDispatchOrders } from '../../api/repositories/dispatchRepository';
+import { listMachines } from '../../api/repositories/machineRepository';
+import { listMaterials } from '../../api/repositories/materialRepository';
+import { countUnreadNotifications } from '../../api/repositories/notificationRepository';
+import { listProducts } from '../../api/repositories/productRepository';
+import { listProductionOrders } from '../../api/repositories/productionOrderRepository';
+import { listPurchaseRequests } from '../../api/repositories/purchaseRepository';
+import { listStaff } from '../../api/repositories/staffRepository';
+import { listSuppliers } from '../../api/repositories/supplierRepository';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import { useAuthStore } from '../../store/authStore';
 import { useThemeStore } from '../../store/themeStore';

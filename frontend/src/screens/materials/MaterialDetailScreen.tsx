@@ -7,8 +7,8 @@ import { Card } from '../../components/common/Card';
 import { Screen } from '../../components/common/Screen';
 import { SectionHeader } from '../../components/common/SectionHeader';
 import { StatusBadge } from '../../components/common/StatusBadge';
-import { getBomForProduct, getMaterialById } from '../../database/repositories/materialRepository';
-import { listProducts } from '../../database/repositories/productRepository';
+import { getBomForProduct, getMaterialById } from '../../api/repositories/materialRepository';
+import { listProducts } from '../../api/repositories/productRepository';
 import {
   adjustMaterialStock,
   issueMaterialStock,

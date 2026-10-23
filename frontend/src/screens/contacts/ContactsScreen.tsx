@@ -21,13 +21,13 @@ import {
   deleteCustomer,
   listCustomers,
   updateCustomer,
-} from '../../database/repositories/customerRepository';
+} from '../../api/repositories/customerRepository';
 import {
   createSupplier,
   deleteSupplier,
   listSuppliers,
   updateSupplier,
-} from '../../database/repositories/supplierRepository';
+} from '../../api/repositories/supplierRepository';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import { colors, spacing, typography } from '../../theme';
 import type { CustomerRow, SupplierRow } from '../../types/database';
@@ -93,8 +93,8 @@ export function ContactsScreen() {
 
   const handleOpenEditCustomer = (c: CustomerRow) => {
     setEditingCustomer(c);
-    setCustName(c.name);
-    setCustCompany(c.company);
+    setCustName(c.name || '');
+    setCustCompany(c.company || '');
     setCustPhone(c.phone || '');
     setCustEmail(c.email || '');
     setCustAddress(c.delivery_address || '');
@@ -138,7 +138,7 @@ export function ContactsScreen() {
 
   const handleOpenEditSupplier = (s: SupplierRow) => {
     setEditingSupplier(s);
-    setSuppName(s.name);
+    setSuppName(s.name || '');
     setSuppContact(s.contact_person || '');
     setSuppPhone(s.phone || '');
     setSuppEmail(s.email || '');

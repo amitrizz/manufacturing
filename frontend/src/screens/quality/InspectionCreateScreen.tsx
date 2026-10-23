@@ -17,8 +17,8 @@ import { ViewModeBanner } from '../../components/common/ViewModeBanner';
 import {
   getProductionOrderById,
   listProductionOrders,
-} from '../../database/repositories/productionOrderRepository';
-import { listOrdersWaitingForQc } from '../../database/repositories/qualityRepository';
+} from '../../api/repositories/productionOrderRepository';
+import { listOrdersWaitingForQc } from '../../api/repositories/qualityRepository';
 import { updatePreProductionQc } from '../../services/productionService';
 import { useAuthStore } from '../../store/authStore';
 import { colors, spacing } from '../../theme';
@@ -151,12 +151,15 @@ export function InspectionCreateScreen({ navigation, route }: Props) {
 
       Alert.alert(
         'Quality Check Approved',
-        `Order ${selectedOrder.order_number} has passed Quality Check.\n\nProduction is now unlocked. You can assign machine(s) and worker(s) when starting production from the order screen.`,
+        `Order ${selectedOrder.order_number} has passed Quality Check.\n\nPre-production inspection is APPROVED. Production is now unlocked. You can assign machine(s) and worker(s) to start production.`,
         [
           {
-            text: 'View Order',
+            text: 'Assign & Start Production',
             onPress: () => {
-              navigation.replace('ProductionOrderDetail', { orderId: selectedOrder.id });
+              navigation.replace('ProductionOrderDetail', {
+                orderId: selectedOrder.id,
+                autoOpenStartModal: true,
+              });
             },
           },
           {

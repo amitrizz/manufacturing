@@ -40,3 +40,12 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# APK & Android builds
+*.apk
+*.aab
+*.ap_
+.gradle/
+build/
+android/app/build/
+android/.gradle/

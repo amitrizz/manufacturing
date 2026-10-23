@@ -1,6 +1,6 @@
 import { ScrollView, StyleSheet, View, type ScrollViewProps } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { spacing } from '../../theme';
+import { colors, spacing } from '../../theme';
 import { useThemeStore } from '../../store/themeStore';
 
 type Props = ScrollViewProps & {
@@ -38,12 +38,7 @@ export function Screen({
     <ScrollView
       style={[styles.root, { backgroundColor: themeColors.background }, style]}
       contentContainerStyle={[
-        {
-          paddingTop: pad,
-          paddingBottom: insets.bottom + spacing.xxl,
-          paddingHorizontal: pad,
-          gap: spacing.md,
-        },
+        { paddingTop: pad, paddingHorizontal: pad, paddingBottom: pad + insets.bottom },
         contentContainerStyle,
       ]}
       showsVerticalScrollIndicator={false}
@@ -57,5 +52,6 @@ export function Screen({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    backgroundColor: colors.background,
   },
 });

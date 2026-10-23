@@ -1,57 +1,79 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, spacing, typography } from '../../theme';
-import { shadows } from '../../theme/shadows';
 import { StatusBadge } from './StatusBadge';
 
 type Props = {
   title: string;
   subtitle?: string;
   status?: string;
-  onPress?: () => void;
   rightMeta?: string;
+  onPress?: () => void;
+  showChevron?: boolean;
 };
 
-export function ListRow({ title, subtitle, status, onPress, rightMeta }: Props) {
+export function ListRow({
+  title,
+  subtitle,
+  status,
+  rightMeta,
+  onPress,
+  showChevron = true,
+}: Props) {
   return (
     <Pressable
-      style={({ pressed }) => [styles.row, pressed && onPress && styles.pressed]}
+      style={({ pressed }) => [styles.container, pressed && styles.pressed]}
       onPress={onPress}
-      disabled={!onPress}
     >
-      <View style={styles.body}>
-        <View style={styles.titleRow}>
-          <Text style={typography.body} numberOfLines={1}>{title}</Text>
-          {status ? <StatusBadge status={status} compact /> : null}
-        </View>
-        {subtitle ? <Text style={typography.bodySmall} numberOfLines={2}>{subtitle}</Text> : null}
+      <View style={styles.textWrap}>
+        <Text style={typography.bodySmall} numberOfLines={1}>
+          {title}
+        </Text>
+        {subtitle ? (
+          <Text style={typography.caption} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        ) : null}
       </View>
-      {rightMeta ? <Text style={styles.meta}>{rightMeta}</Text> : null}
-      {onPress ? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} /> : null}
+      <View style={styles.rightWrap}>
+        {status ? <StatusBadge status={status} /> : null}
+        {rightMeta ? <Text style={styles.rightMeta}>{rightMeta}</Text> : null}
+        {showChevron && onPress ? (
+          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+        ) : null}
+      </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.sm,
-    ...shadows.card,
-  },
-  pressed: { opacity: 0.92 },
-  body: { flex: 1, gap: 4 },
-  titleRow: {
+  container: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.xs,
+  },
+  pressed: {
+    backgroundColor: '#F1F5F9',
+  },
+  textWrap: {
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  rightWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.sm,
   },
-  meta: { ...typography.caption, color: colors.textMuted },
+  rightMeta: {
+    ...typography.caption,
+    fontWeight: '700',
+    color: colors.primary,
+  },
 });

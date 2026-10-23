@@ -12,8 +12,8 @@ import {
   getBomForProduct,
   listAllProductBoms,
   type ProductBomGroup,
-} from '../../database/repositories/materialRepository';
-import { listProducts } from '../../database/repositories/productRepository';
+} from '../../api/repositories/materialRepository';
+import { listProducts } from '../../api/repositories/productRepository';
 import type { BomItemRow, ProductRow } from '../../types/database';
 import type { MoreStackParamList } from '../../navigation/types';
 import { colors, spacing, typography } from '../../theme';
@@ -79,7 +79,7 @@ export function ProductBomScreen({ navigation, route }: Props) {
         g.product_code.toLowerCase().includes(q) ||
         g.product_name.toLowerCase().includes(q) ||
         g.items.some(
-          (i) =>
+          (i: any) =>
             i.material_code.toLowerCase().includes(q) ||
             i.material_name.toLowerCase().includes(q),
         ),

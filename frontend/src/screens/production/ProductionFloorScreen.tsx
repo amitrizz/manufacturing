@@ -25,9 +25,9 @@ import {
   createLine,
   listLines,
   listMachineOperatorSummaries,
-} from '../../database/repositories/machineRepository';
-import { listProductionOrders } from '../../database/repositories/productionOrderRepository';
-import { listStaff } from '../../database/repositories/staffRepository';
+} from '../../api/repositories/machineRepository';
+import { listProductionOrders } from '../../api/repositories/productionOrderRepository';
+import { listStaff } from '../../api/repositories/staffRepository';
 import type {
   MachineOperatorSummary,
   ProductionOrderRow,
@@ -113,7 +113,11 @@ export function ProductionFloorScreen() {
   const orderByMachine = useMemo(() => {
     const map = new Map<string, ProductionOrderRow>();
     for (const o of activeOrders) {
-      if (o.machine_id) {
+      if (Array.isArray(o.assigned_machines) && o.assigned_machines.length > 0) {
+        for (const mId of o.assigned_machines) {
+          map.set(String(mId), o);
+        }
+      } else if (o.machine_id) {
         map.set(o.machine_id, o);
       }
     }
@@ -126,13 +130,13 @@ export function ProductionFloorScreen() {
     const q = search.trim().toLowerCase();
     return machineSummaries.filter(
       (m) =>
-        m.machine_code.toLowerCase().includes(q) ||
-        m.machine_name.toLowerCase().includes(q) ||
+        (m.machine_code || '').toLowerCase().includes(q) ||
+        (m.machine_name || '').toLowerCase().includes(q) ||
         (m.line_code || '').toLowerCase().includes(q) ||
         (m.line_name || '').toLowerCase().includes(q) ||
         (m.current_operator || '').toLowerCase().includes(q) ||
         (m.current_product || '').toLowerCase().includes(q) ||
-        m.operators.some((op) => op.name.toLowerCase().includes(q)),
+        (m.operators || []).some((op: any) => (op.name || '').toLowerCase().includes(q)),
     );
   }, [machineSummaries, search]);
 
@@ -510,7 +514,7 @@ export function ProductionFloorScreen() {
                       {/* 3 Shifts: Morning, Evening, Night */}
                       <View style={styles.shiftCardsList}>
                         {SHIFT_OPTIONS.map((sh) => {
-                          const assignment = (m.shift_assignments || []).find((s) => s.shift === sh);
+                          const assignment = (m.shift_assignments || []).find((s: any) => s.shift === sh);
                           const isMorning = sh === 'Morning';
                           const isEvening = sh === 'Evening';
                           const shiftColor = isMorning ? '#EA580C' : isEvening ? '#D97706' : '#6366F1';
@@ -592,7 +596,7 @@ export function ProductionFloorScreen() {
                                     onPress={() =>
                                       handleOpenAssignModal(
                                         m.machine_id,
-                                        m.machine_code,
+                                        m.machine_code || '',
                                         sh,
                                         workerName,
                                       )
@@ -617,11 +621,11 @@ export function ProductionFloorScreen() {
                       <View style={styles.machineTotalStat}>
                         <Text style={styles.machineTotalLabel}>Machine Total:</Text>
                         <Text style={styles.machineTotalValue}>
-                          {formatNumber(m.total_produced)} pcs
+                          {formatNumber(m.total_produced || 0)} pcs
                         </Text>
-                        {m.total_rejected > 0 && (
+                        {(m.total_rejected || 0) > 0 && (
                           <Text style={styles.machineRejectValue}>
-                            ({formatNumber(m.total_rejected)} reject)
+                            ({formatNumber(m.total_rejected || 0)} reject)
                           </Text>
                         )}
                       </View>

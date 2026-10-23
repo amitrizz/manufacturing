@@ -1,6 +1,6 @@
 import { mongoApi } from '../api/client';
 import { notifyDataChanged } from '../store/dataRefreshStore';
-import { getMaterialById } from '../database/repositories/materialRepository';
+import { getMaterialById } from '../api/repositories/materialRepository';
 
 export class MaterialStockError extends Error {
   constructor(message: string) {

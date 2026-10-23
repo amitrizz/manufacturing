@@ -4,12 +4,13 @@ import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-nativ
 import { Button } from '../../components/common/Button';
 import { Screen } from '../../components/common/Screen';
 import { SectionHeader } from '../../components/common/SectionHeader';
-import { getBomForProduct, listMaterials } from '../../database/repositories/materialRepository';
+import { UnitPicker } from '../../components/common/UnitPicker';
+import { getBomForProduct, listMaterials } from '../../api/repositories/materialRepository';
 import {
   deleteProduct,
   getProductById,
   updateProductWithBom,
-} from '../../database/repositories/productRepository';
+} from '../../api/repositories/productRepository';
 import type { MoreStackParamList } from '../../navigation/types';
 import type { MaterialRow } from '../../types/database';
 import { colors, spacing, typography } from '../../theme';
@@ -45,16 +46,16 @@ export function ProductEditScreen({ navigation, route }: Props) {
         setLoading(false);
         return;
       }
-      setCode(product.code);
-      setName(product.name);
-      setUnit(product.unit);
+      setCode(product.code || '');
+      setName(product.name || '');
+      setUnit(product.unit || 'pcs');
       setDescription(product.description ?? '');
       if (bom.length > 0) {
         setLines(
           bom.map((item, i) => ({
             key: `${item.material_id}-${i}`,
             material_id: item.material_id,
-            quantity: String(item.quantity),
+            quantity: String(item.quantity ?? 1),
           })),
         );
       } else if (mats[0]) {
@@ -150,8 +151,12 @@ export function ProductEditScreen({ navigation, route }: Props) {
       <Text style={typography.label}>Product name</Text>
       <TextInput style={styles.input} value={name} onChangeText={setName} />
 
-      <Text style={typography.label}>Unit</Text>
-      <TextInput style={styles.input} value={unit} onChangeText={setUnit} />
+      <UnitPicker
+        label="Unit"
+        required
+        value={unit}
+        onChange={setUnit}
+      />
 
       <Text style={typography.label}>Description (optional)</Text>
       <TextInput
@@ -249,9 +254,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.background,
+    backgroundColor: colors.surface,
   },
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipTextActive: { color: '#fff', fontWeight: '600' },
-  remove: { color: colors.danger, fontWeight: '600', marginTop: spacing.xs },
+  remove: { color: colors.danger, marginTop: spacing.xs, fontWeight: '600' },
 });

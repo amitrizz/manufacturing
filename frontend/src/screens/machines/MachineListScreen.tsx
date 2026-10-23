@@ -25,8 +25,8 @@ import {
   listLines,
   listMachineOperatorSummaries,
   listOperatorMachineSummaries,
-} from '../../database/repositories/machineRepository';
-import { listStaff } from '../../database/repositories/staffRepository';
+} from '../../api/repositories/machineRepository';
+import { listStaff } from '../../api/repositories/staffRepository';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import type { MachinesStackParamList } from '../../navigation/types';
 import { colors } from '../../theme';
@@ -202,7 +202,7 @@ export function MachineListScreen({ navigation, route }: Props) {
   // Top KPI calculations
   const totalMachines = machineSummaries.length;
   const activeMachines = machineSummaries.filter((m) =>
-    m.shift_assignments ? m.shift_assignments.some((s) => s.operator !== null) : m.current_operator !== null,
+    m.shift_assignments ? m.shift_assignments.some((s: any) => s.operator !== null) : m.current_operator !== null,
   ).length;
   const totalProduced = machineSummaries.reduce((sum, m) => sum + m.total_produced, 0);
   const totalOperatorsCount = operatorSummaries.length;
@@ -439,7 +439,7 @@ export function MachineListScreen({ navigation, route }: Props) {
                     <Text style={styles.shiftsHeaderTitle}>3-Shift Staff Allocation</Text>
                   </View>
                   <Text style={styles.shiftsCountBadge}>
-                    {(item.shift_assignments || []).filter((s) => s.operator !== null).length} / 3 Assigned
+                    {(item.shift_assignments || []).filter((s: any) => s.operator !== null).length} / 3 Assigned
                   </Text>
                 </View>
 
@@ -448,7 +448,7 @@ export function MachineListScreen({ navigation, route }: Props) {
                     { shift: 'Morning', operator: item.current_operator, total_produced: item.total_produced, last_active_at: item.last_active_at },
                     { shift: 'Evening', operator: null, total_produced: 0, last_active_at: null },
                     { shift: 'Night', operator: null, total_produced: 0, last_active_at: null },
-                  ]).map((sa) => {
+                  ]).map((sa: any) => {
                     const isMorning = sa.shift === 'Morning';
                     const isEvening = sa.shift === 'Evening';
                     const shiftIcon = isMorning ? 'sunny-outline' : isEvening ? 'partly-sunny-outline' : 'moon-outline';
@@ -496,7 +496,7 @@ export function MachineListScreen({ navigation, route }: Props) {
                               {!isViewOnly && (
                                 <Pressable
                                   style={styles.shiftChangeBtn}
-                                  onPress={() => handleOpenAssignModal(item.machine_id, item.machine_code, sa.shift as any, sa.operator)}
+                                  onPress={() => handleOpenAssignModal(item.machine_id, item.machine_code || '', sa.shift as any, sa.operator)}
                                   hitSlop={6}
                                 >
                                   <Ionicons name="pencil" size={11} color="#0284C7" />
@@ -507,7 +507,7 @@ export function MachineListScreen({ navigation, route }: Props) {
                             !isViewOnly ? (
                               <Pressable
                                 style={styles.shiftAssignBtn}
-                                onPress={() => handleOpenAssignModal(item.machine_id, item.machine_code, sa.shift as any)}
+                                onPress={() => handleOpenAssignModal(item.machine_id, item.machine_code || '', sa.shift as any)}
                               >
                                 <Ionicons name="person-add-outline" size={12} color="#0284C7" />
                                 <Text style={styles.shiftAssignBtnText}>Assign</Text>
@@ -543,7 +543,7 @@ export function MachineListScreen({ navigation, route }: Props) {
                 {!isViewOnly && (
                   <Pressable
                     style={styles.actionBtnPrimary}
-                    onPress={() => handleOpenAssignModal(item.machine_id, item.machine_code, 'Morning')}
+                    onPress={() => handleOpenAssignModal(item.machine_id, item.machine_code || '', 'Morning')}
                   >
                     <Ionicons name="person-add-outline" size={15} color="#FFFFFF" />
                     <Text style={styles.actionBtnPrimaryText}>Assign Staff</Text>
@@ -593,7 +593,7 @@ export function MachineListScreen({ navigation, route }: Props) {
               <View style={styles.personMachinesSection}>
                 <Text style={styles.sectionSmallLabel}>Machines Operated:</Text>
                 <View style={styles.machineBadgesRow}>
-                  {item.machines.map((mCode) => (
+                  {item.machines.map((mCode: any) => (
                     <View key={mCode} style={styles.machineBadgePill}>
                       <Ionicons name="hardware-chip-outline" size={12} color="#0A1E38" />
                       <Text style={styles.machineBadgePillText}>{mCode}</Text>
@@ -636,8 +636,8 @@ export function MachineListScreen({ navigation, route }: Props) {
               {staffList.map((st) => {
                 const active = selectedOperator === st.name;
                 const assign = activeAssignments[st.name];
-                const isOnThisMachine = assign?.machines?.some((m) => m.machineId === selectedMachineId);
-                const otherMachines = assign?.machines?.filter((m) => m.machineId !== selectedMachineId) || [];
+                const isOnThisMachine = assign?.machines?.some((m: any) => m.machineId === selectedMachineId);
+                const otherMachines = assign?.machines?.filter((m: any) => m.machineId !== selectedMachineId) || [];
                 return (
                   <Pressable
                     key={st.id}
@@ -691,7 +691,7 @@ export function MachineListScreen({ navigation, route }: Props) {
                             active && { color: '#FFFFFF' },
                             !active && isOnThisMachine && { color: '#0369A1' },
                             !active && otherMachines.length > 0 && { color: '#0369A1' },
-                            !active && (!assign || assign.machines.length === 0) && { color: '#15803D' },
+                            !active && (!assign || (assign.machines || []).length === 0) && { color: '#15803D' },
                           ]}
                         >
                           {isOnThisMachine
@@ -710,8 +710,8 @@ export function MachineListScreen({ navigation, route }: Props) {
             {/* Live Assignment Status Banners */}
             {(() => {
               const currentAssign = activeAssignments[selectedOperator];
-              const isOnThisMachine = currentAssign?.machines?.some((m) => m.machineId === selectedMachineId);
-              const otherMachines = currentAssign?.machines?.filter((m) => m.machineId !== selectedMachineId) || [];
+              const isOnThisMachine = currentAssign?.machines?.some((m: any) => m.machineId === selectedMachineId);
+              const otherMachines = currentAssign?.machines?.filter((m: any) => m.machineId !== selectedMachineId) || [];
 
               return (
                 <View style={{ gap: 6, marginVertical: 4 }}>
@@ -739,10 +739,10 @@ export function MachineListScreen({ navigation, route }: Props) {
                           Multi-Machine Operator ({otherMachines.length + 1} machines total)
                         </Text>
                         <Text style={styles.bannerMultiDesc}>
-                          {selectedOperator} is already operating <Text style={styles.bold}>{otherMachines.map((m) => `${m.machineCode} (${m.shift})`).join(', ')}</Text>.
+                          {selectedOperator} is already operating <Text style={styles.bold}>{otherMachines.map((m: any) => `${m.machineCode} (${m.shift})`).join(', ')}</Text>.
                         </Text>
                         <Text style={styles.bannerMultiNote}>
-                          They will now manage both {otherMachines.map((m) => m.machineCode).join(', ')} and {selectedMachineCode}.
+                          They will now manage both {otherMachines.map((m: any) => m.machineCode).join(', ')} and {selectedMachineCode}.
                         </Text>
                       </View>
                     </View>
@@ -803,7 +803,7 @@ export function MachineListScreen({ navigation, route }: Props) {
               />
               <Button
                 label={
-                  activeAssignments[selectedOperator]?.machines?.some((m) => m.machineId !== selectedMachineId)
+                  activeAssignments[selectedOperator]?.machines?.some((m: any) => m.machineId !== selectedMachineId)
                     ? `Assign (Multi-Machine)`
                     : `Assign to ${selectedMachineCode}`
                 }

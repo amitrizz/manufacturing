@@ -20,11 +20,10 @@ export function FirstLaunchScreen({ onExplore }: Props) {
       </View>
       <Text style={typography.h1}>{APP_DISPLAY_NAME}</Text>
       <Text style={styles.lead}>
-        Production, quality, maintenance, and dispatch — fully offline on this device with local
-        SQLite data.
+        Production, quality, maintenance, and dispatch — seamlessly connected with cloud MongoDB Atlas and live manufacturing APIs.
       </Text>
       <View style={styles.features}>
-        {['Real-time floor KPIs', 'Material & quality tracking', 'No cloud required'].map((f) => (
+        {['Real-time floor KPIs', 'Material & quality tracking', 'Centralized cloud synchronization'].map((f) => (
           <View key={f} style={styles.featureRow}>
             <Ionicons name="checkmark-circle" size={20} color={colors.success} />
             <Text style={typography.body}>{f}</Text>
@@ -59,7 +58,16 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     lineHeight: 24,
   },
-  features: { marginTop: spacing.xl, gap: spacing.md },
-  featureRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  cta: { marginTop: 'auto' },
+  features: {
+    marginTop: spacing.xl,
+    gap: spacing.md,
+  },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  cta: {
+    marginTop: 'auto',
+  },
 });

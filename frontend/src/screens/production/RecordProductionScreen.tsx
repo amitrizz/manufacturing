@@ -9,9 +9,10 @@ import {
   getMaterialConsumptionPreview,
   getProductionOrderById,
   listProductionOrders,
-} from '../../database/repositories/productionOrderRepository';
+} from '../../api/repositories/productionOrderRepository';
+import { listMachines } from '../../api/repositories/machineRepository';
 import { recordProduction } from '../../services/productionService';
-import type { MaterialConsumptionLine, ProductionOrderRow } from '../../types/database';
+import type { MachineRow, MaterialConsumptionLine, ProductionOrderRow } from '../../types/database';
 import type { ProductionStackParamList } from '../../navigation/types';
 import { colors, spacing, typography } from '../../theme';
 import { formatNumber } from '../../utils/format';
@@ -65,6 +66,8 @@ export function RecordProductionScreen({ navigation, route }: Props) {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(route.params?.orderId || null);
   const [currentOrder, setCurrentOrder] = useState<ProductionOrderRow | null>(null);
   const [activeOrders, setActiveOrders] = useState<ProductionOrderRow[]>([]);
+  const [machines, setMachines] = useState<MachineRow[]>([]);
+  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(route.params?.machineId || null);
   const [orderDropdownOpen, setOrderDropdownOpen] = useState(false);
   const [productId, setProductId] = useState<string | null>(null);
   const [usage, setUsage] = useState<MaterialConsumptionLine[]>([]);
@@ -72,17 +75,28 @@ export function RecordProductionScreen({ navigation, route }: Props) {
   const currentShiftDef = SHIFT_OPTIONS.find((s) => s.id === shift) || SHIFT_OPTIONS[0];
 
   useEffect(() => {
+    listMachines().then(setMachines).catch(() => []);
+  }, []);
+
+  useEffect(() => {
     (async () => {
-      const orders = await listProductionOrders({ status: 'IN_PROGRESS' });
-      setActiveOrders(orders);
+      const allOrders = await listProductionOrders();
+      const inProgress = allOrders.filter((o) => o.status === 'IN_PROGRESS');
+      const qcPassed = allOrders.filter((o) => o.status === 'PENDING' && o.qc_status === 'PASSED');
+      const selectable = [...inProgress, ...qcPassed];
+      setActiveOrders(selectable.length > 0 ? selectable : allOrders);
 
       let targetId = route.params?.orderId;
       if (!targetId && route.params?.machineId) {
-        const matching = orders.find((o) => o.machine_id === route.params.machineId);
+        const matching = selectable.find(
+          (o) =>
+            o.machine_id === route.params.machineId ||
+            (Array.isArray((o as any).assigned_machines) && (o as any).assigned_machines.includes(route.params.machineId!)),
+        );
         if (matching) targetId = matching.id;
       }
-      if (!targetId && orders.length > 0) {
-        targetId = orders[0].id;
+      if (!targetId && selectable.length > 0) {
+        targetId = selectable[0].id;
       }
 
       if (targetId) {
@@ -91,6 +105,14 @@ export function RecordProductionScreen({ navigation, route }: Props) {
         if (o) {
           setCurrentOrder(o);
           setProductId(o.product_id);
+          const orderMachines = Array.isArray(o.assigned_machines) && o.assigned_machines.length > 0
+            ? o.assigned_machines.map(String)
+            : o.machine_id
+            ? [o.machine_id]
+            : [];
+          if (orderMachines.length > 0 && !selectedMachineId) {
+            setSelectedMachineId(orderMachines[0]);
+          }
         }
       }
     })();
@@ -103,6 +125,14 @@ export function RecordProductionScreen({ navigation, route }: Props) {
     if (o) {
       setCurrentOrder(o);
       setProductId(o.product_id);
+      const orderMachines = Array.isArray(o.assigned_machines) && o.assigned_machines.length > 0
+        ? o.assigned_machines.map(String)
+        : o.machine_id
+        ? [o.machine_id]
+        : [];
+      if (orderMachines.length > 0) {
+        setSelectedMachineId(orderMachines[0]);
+      }
     }
   };
 
@@ -131,15 +161,22 @@ export function RecordProductionScreen({ navigation, route }: Props) {
     }
     try {
       const order = currentOrder || (await getProductionOrderById(selectedOrderId));
-      let targetMachineId = order?.machine_id || route.params?.machineId;
+      let targetMachineId =
+        selectedMachineId ||
+        order?.machine_id ||
+        (Array.isArray((order as any)?.assigned_machines) && (order as any)?.assigned_machines.length > 0
+          ? (order as any)?.assigned_machines[0]
+          : null) ||
+        route.params?.machineId;
+
       if (!targetMachineId) {
         Alert.alert(
-          'Machine & Worker Required',
-          `Order ${order?.order_number || selectedOrderId} has not started production yet. Please open Order Details to assign machine(s) and worker(s) before recording output.`,
+          'Machine & Worker Assignment Required',
+          `Order ${order?.order_number || selectedOrderId} requires assigned machine(s) and worker(s) before logging output.\n\nPlease open Order Details to assign production resources.`,
           [
             { text: 'Cancel', style: 'cancel' },
             {
-              text: 'Open Order Details',
+              text: 'Assign Resources Now',
               onPress: () => {
                 navigation.replace('ProductionOrderDetail', { orderId: selectedOrderId });
               },
@@ -233,6 +270,33 @@ export function RecordProductionScreen({ navigation, route }: Props) {
           </Text>
         </Card>
       )}
+
+      {currentOrder && (Array.isArray(currentOrder.assigned_machines) ? currentOrder.assigned_machines.length > 1 : false) && (
+        <View style={{ marginBottom: 12 }}>
+          <Text style={typography.label}>Operating Machine</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+            {(currentOrder.assigned_machines as string[]).map((mId) => {
+              const mObj = machines.find((m) => String(m.id) === String(mId));
+              const active = selectedMachineId === mId;
+              return (
+                <Pressable
+                  key={mId}
+                  style={[
+                    styles.chip,
+                    active && styles.chipActive,
+                  ]}
+                  onPress={() => setSelectedMachineId(mId)}
+                >
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {active ? '✓ ' : ''}{mObj ? `${mObj.code} (${mObj.name})` : `Machine #${mId}`}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
       <Text style={typography.label}>Good quantity</Text>
       <TextInput style={styles.input} value={good} onChangeText={setGood} keyboardType="numeric" />
       <Text style={typography.label}>Rejected</Text>
@@ -261,20 +325,17 @@ export function RecordProductionScreen({ navigation, route }: Props) {
         ))
       )}
 
-      <Text style={typography.label}>Production Shift *</Text>
-      <View style={styles.dropdownContainer}>
-        <Pressable
-          style={[styles.dropdownHeader, shiftDropdownOpen && styles.dropdownHeaderActive]}
-          onPress={() => setShiftDropdownOpen((v) => !v)}
-        >
-          <View style={[styles.shiftIconBox, { backgroundColor: currentShiftDef.bg }]}>
-            <Ionicons
-              name={currentShiftDef.icon}
-              size={18}
-              color={currentShiftDef.color}
-            />
-          </View>
-          <Text style={[styles.dropdownSelectedText, { flex: 1 }]}>{currentShiftDef.label}</Text>
+      <Text style={typography.label}>Shift</Text>
+      <Pressable style={styles.dropdownTrigger} onPress={() => setShiftDropdownOpen(!shiftDropdownOpen)}>
+        <View style={styles.dropdownLeading}>
+          <Ionicons
+            name={currentShiftDef.icon as any}
+            size={18}
+            color={currentShiftDef.color}
+            style={{ marginRight: 6 }}
+          />
+        </View>
+        <Text style={[styles.dropdownSelectedText, { flex: 1 }]}>{currentShiftDef.label}</Text>
           <Ionicons
             name={shiftDropdownOpen ? 'chevron-up' : 'chevron-down'}
             size={18}
@@ -309,7 +370,6 @@ export function RecordProductionScreen({ navigation, route }: Props) {
             })}
           </View>
         )}
-      </View>
 
       <Text style={typography.label}>Recorded By (User & Role)</Text>
       <View style={styles.recorderCard}>
@@ -358,75 +418,88 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   strong: { fontWeight: '700', color: colors.primary },
-  dropdownContainer: {
-    marginBottom: spacing.xs,
-  },
-  dropdownHeader: {
+  dropdownBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'space-between',
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: colors.border,
     borderRadius: 8,
     padding: spacing.md,
     backgroundColor: colors.surface,
   },
-  dropdownHeaderActive: {
-    borderColor: '#0A1E38',
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
+  dropdownBtnText: {
+    fontSize: 14,
+    color: colors.text,
   },
-  shiftIconBox: {
-    width: 34,
-    height: 34,
-    borderRadius: 8,
+  dropdownTrigger: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  dropdownLeading: {
+    marginRight: 4,
   },
   dropdownSelectedText: {
     fontSize: 14,
-    fontWeight: '700',
-    color: '#0A1E38',
-  },
-  dropdownHoursText: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginTop: 2,
+    color: colors.text,
   },
   dropdownMenu: {
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderTopWidth: 0,
-    borderColor: '#0A1E38',
-    borderBottomLeftRadius: 8,
-    borderBottomRightRadius: 8,
-    backgroundColor: '#FFFFFF',
+    borderColor: colors.border,
+    borderRadius: 8,
     overflow: 'hidden',
+    marginTop: 4,
+  },
+  dropdownList: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginTop: 4,
   },
   dropdownItem: {
+    padding: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomColor: colors.border,
+  },
+  dropdownItemActive: {
+    backgroundColor: colors.primary + '15',
   },
   dropdownItemSelected: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: colors.primary + '15',
   },
   dropdownItemTitle: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 14,
     color: colors.text,
   },
   dropdownItemTitleSelected: {
-    fontWeight: '800',
-    color: '#0A1E38',
+    color: colors.primary,
+    fontWeight: '700',
   },
-  dropdownItemHours: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginTop: 1,
+  shiftIconBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  dropdownItemText: {
+    fontSize: 14,
+    color: colors.text,
+  },
+  dropdownItemTextActive: {
+    color: colors.primary,
+    fontWeight: '700',
   },
   recorderCard: {
     flexDirection: 'row',
@@ -566,5 +639,25 @@ const styles = StyleSheet.create({
   bold: {
     fontWeight: '700',
     color: '#0A1E38',
+  },
+  chip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  chipActive: {
+    backgroundColor: '#0A1E38',
+    borderColor: '#0A1E38',
+  },
+  chipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  chipTextActive: {
+    color: '#FFFFFF',
   },
 });

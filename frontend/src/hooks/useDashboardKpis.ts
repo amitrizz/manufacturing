@@ -5,8 +5,8 @@ import {
   getDashboardKpis,
   type DashboardAlert,
   type DashboardKpis,
-} from '../database/repositories/reportsRepository';
-import { listRecentActivity } from '../database/repositories/activityRepository';
+} from '../api/repositories/reportsRepository';
+import { listRecentActivity } from '../api/repositories/activityRepository';
 import type { ActivityRow } from '../types/database';
 import { useFilterStore } from '../store/filterStore';
 import { getRangeForPreset } from '../utils/dateRange';

@@ -1,9 +1,9 @@
-import { listDispatchOrders } from '../database/repositories/dispatchRepository';
-import { listMaterials } from '../database/repositories/materialRepository';
-import { listMachines } from '../database/repositories/machineRepository';
-import { listMaintenanceOrders } from '../database/repositories/maintenanceRepository';
-import { listProductionOrders } from '../database/repositories/productionOrderRepository';
-import { listReworkOrders } from '../database/repositories/qualityRepository';
+import { listDispatchOrders } from '../api/repositories/dispatchRepository';
+import { listMaterials } from '../api/repositories/materialRepository';
+import { listMachines } from '../api/repositories/machineRepository';
+import { listMaintenanceOrders } from '../api/repositories/maintenanceRepository';
+import { listProductionOrders } from '../api/repositories/productionOrderRepository';
+import { listReworkOrders } from '../api/repositories/qualityRepository';
 import type { ActionableTask } from '../types/tasks';
 import { formatStatusLabel } from '../utils/format';
 
@@ -134,3 +134,4 @@ export async function countActionableTasks(): Promise<number> {
   const tasks = await listActionableTasks();
   return tasks.length;
 }
+

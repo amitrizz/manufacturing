@@ -18,7 +18,7 @@ import {
   listOrdersWaitingForQc,
   listQualityInspections,
   listReworkOrders,
-} from '../../database/repositories/qualityRepository';
+} from '../../api/repositories/qualityRepository';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import type { QualityStackParamList } from '../../navigation/types';
 import { colors, spacing } from '../../theme';

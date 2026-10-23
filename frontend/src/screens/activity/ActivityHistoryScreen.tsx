@@ -14,9 +14,9 @@ import {
 } from 'react-native';
 import { AppHeader } from '../../components/common/AppHeader';
 import { Card } from '../../components/common/Card';
-import { listActivityFiltered } from '../../database/repositories/activityRepository';
-import { dispatchOrder } from '../../database/repositories/dispatchRepository';
-import { completeReworkOrder } from '../../database/repositories/qualityRepository';
+import { listActivityFiltered } from '../../api/repositories/activityRepository';
+import { dispatchOrder } from '../../api/repositories/dispatchRepository';
+import { completeReworkOrder } from '../../api/repositories/qualityRepository';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import { navigateToActivityReference } from '../../navigation/navigateToReference';
 import { listActionableTasks } from '../../services/actionableTasksService';

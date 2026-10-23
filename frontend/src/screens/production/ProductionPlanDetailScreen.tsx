@@ -17,7 +17,7 @@ import {
   deleteProductionPlan,
   getProductionPlanById,
   updateProductionPlan,
-} from '../../database/repositories/productionPlanRepository';
+} from '../../api/repositories/productionPlanRepository';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import type { ProductionStackParamList } from '../../navigation/types';
 import { colors, spacing, typography } from '../../theme';
@@ -47,9 +47,10 @@ export function ProductionPlanDetailScreen({ navigation, route }: Props) {
 
   const handleOpenEdit = () => {
     if (!plan) return;
-    setEditTargetQty(plan.target_quantity.toString());
-    setEditPriority(plan.priority);
-    setEditStatus(plan.status);
+    const qty = plan.target_quantity ?? (plan as any).planned_quantity ?? 0;
+    setEditTargetQty(String(qty || ''));
+    setEditPriority(plan.priority || 'MEDIUM');
+    setEditStatus(plan.status || 'PLANNED');
     setEditNotes(plan.notes || '');
     setShowEditModal(true);
   };
@@ -63,9 +64,10 @@ export function ProductionPlanDetailScreen({ navigation, route }: Props) {
     try {
       await updateProductionPlan(route.params.planId, {
         target_quantity: qty,
+        planned_quantity: qty,
         priority: editPriority,
         status: editStatus,
-        notes: editNotes.trim() || null,
+        notes: editNotes.trim() || undefined,
       });
       setShowEditModal(false);
       Alert.alert('Success', 'Production plan updated.');
@@ -140,7 +142,7 @@ export function ProductionPlanDetailScreen({ navigation, route }: Props) {
               },
             ]}
           >
-            {plan.status}
+            {plan.status || 'PLANNED'}
           </Text>
         </View>
       </View>
@@ -149,22 +151,22 @@ export function ProductionPlanDetailScreen({ navigation, route }: Props) {
         <View style={styles.infoGrid}>
           <View style={styles.infoCol}>
             <Text style={styles.infoLabel}>Target Quantity</Text>
-            <Text style={styles.infoValue}>{formatNumber(plan.target_quantity)} pcs</Text>
+            <Text style={styles.infoValue}>{formatNumber(plan.target_quantity ?? (plan as any).planned_quantity ?? 0)} pcs</Text>
           </View>
           <View style={styles.infoCol}>
             <Text style={styles.infoLabel}>Line</Text>
-            <Text style={styles.infoValue}>Line {plan.line_code}</Text>
+            <Text style={styles.infoValue}>Line {plan.line_code || '-'}</Text>
           </View>
         </View>
 
         <View style={styles.infoGrid}>
           <View style={styles.infoCol}>
             <Text style={styles.infoLabel}>Priority</Text>
-            <Text style={styles.infoValue}>{plan.priority}</Text>
+            <Text style={styles.infoValue}>{plan.priority || 'MEDIUM'}</Text>
           </View>
           <View style={styles.infoCol}>
             <Text style={styles.infoLabel}>Start Date</Text>
-            <Text style={styles.infoValue}>{formatDate(plan.start_date)}</Text>
+            <Text style={styles.infoValue}>{formatDate(plan.start_date || Date.now())}</Text>
           </View>
         </View>
 

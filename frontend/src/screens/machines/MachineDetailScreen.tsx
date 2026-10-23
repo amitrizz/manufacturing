@@ -26,8 +26,8 @@ import {
   listLines,
   updateMachine,
   type MachineProductionTotals,
-} from '../../database/repositories/machineRepository';
-import { listStaff } from '../../database/repositories/staffRepository';
+} from '../../api/repositories/machineRepository';
+import { listStaff } from '../../api/repositories/staffRepository';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import type { MachinesStackParamList } from '../../navigation/types';
 import { machineStatusOptions, setMachineStatus } from '../../services/machineService';
@@ -100,10 +100,10 @@ export function MachineDetailScreen({ navigation, route }: Props) {
 
   const handleOpenEditModal = () => {
     if (!machine) return;
-    setEditCode(machine.code);
-    setEditName(machine.name);
+    setEditCode(machine.code || '');
+    setEditName(machine.name || '');
     setEditType(machine.machine_type || 'General');
-    setEditLineId(machine.line_id);
+    setEditLineId(machine.line_id || '');
     setEditModalVisible(true);
   };
 
@@ -205,7 +205,7 @@ export function MachineDetailScreen({ navigation, route }: Props) {
 
   // Active / latest operator in current period
   const activeEntry = operatorEntries[0];
-  const totalProducedInPeriod = operatorEntries.reduce((sum, e) => sum + e.good_quantity, 0);
+  const totalProducedInPeriod = operatorEntries.reduce((sum, e) => sum + (e.good_quantity || 0), 0);
 
   const shiftAssignments = (['Morning', 'Evening', 'Night'] as const).map((sh) => {
     const entry = operatorEntries.find(
@@ -213,7 +213,7 @@ export function MachineDetailScreen({ navigation, route }: Props) {
     );
     const shiftTotal = operatorEntries
       .filter((e) => (e.shift || '').toLowerCase() === sh.toLowerCase())
-      .reduce((sum, e) => sum + e.good_quantity, 0);
+      .reduce((sum, e) => sum + (e.good_quantity || 0), 0);
 
     return {
       shift: sh,
@@ -424,8 +424,8 @@ export function MachineDetailScreen({ navigation, route }: Props) {
                 Order: <Text style={styles.statBold}>{e.order_number}</Text> ({e.product_code})
               </Text>
               <Text style={styles.historyDetailText}>
-                Produced: <Text style={styles.statBold}>{formatNumber(e.good_quantity)} pcs</Text>
-                {e.rejected_quantity > 0 && ` (${e.rejected_quantity} rejected)`}
+                Produced: <Text style={styles.statBold}>{formatNumber(e.good_quantity || 0)} pcs</Text>
+                {(e.rejected_quantity || 0) > 0 && ` (${e.rejected_quantity} rejected)`}
               </Text>
             </View>
 
@@ -508,8 +508,8 @@ export function MachineDetailScreen({ navigation, route }: Props) {
               {staffList.map((st) => {
                 const active = selectedOperator === st.name;
                 const assign = activeAssignments[st.name];
-                const isOnThisMachine = assign?.machines?.some((m) => m.machineId === machine.id);
-                const otherMachines = assign?.machines?.filter((m) => m.machineId !== machine.id) || [];
+                const isOnThisMachine = assign?.machines?.some((m: any) => m.machineId === machine.id);
+                const otherMachines = assign?.machines?.filter((m: any) => m.machineId !== machine.id) || [];
                 return (
                   <Pressable
                     key={st.id}
@@ -563,7 +563,7 @@ export function MachineDetailScreen({ navigation, route }: Props) {
                             active && { color: '#FFFFFF' },
                             !active && isOnThisMachine && { color: '#0369A1' },
                             !active && otherMachines.length > 0 && { color: '#0369A1' },
-                            !active && (!assign || assign.machines.length === 0) && { color: '#15803D' },
+                            !active && (!assign || (assign.machines || []).length === 0) && { color: '#15803D' },
                           ]}
                         >
                           {isOnThisMachine
@@ -582,8 +582,8 @@ export function MachineDetailScreen({ navigation, route }: Props) {
             {/* Live Assignment Status Banners */}
             {(() => {
               const currentAssign = activeAssignments[selectedOperator];
-              const isOnThisMachine = currentAssign?.machines?.some((m) => m.machineId === machine.id);
-              const otherMachines = currentAssign?.machines?.filter((m) => m.machineId !== machine.id) || [];
+              const isOnThisMachine = currentAssign?.machines?.some((m: any) => m.machineId === machine.id);
+              const otherMachines = currentAssign?.machines?.filter((m: any) => m.machineId !== machine.id) || [];
               const machineCurrentOp = activeEntry?.operator;
 
               return (
@@ -614,10 +614,10 @@ export function MachineDetailScreen({ navigation, route }: Props) {
                           Multi-Machine Operator ({otherMachines.length + 1} machines total)
                         </Text>
                         <Text style={styles.bannerMultiDesc}>
-                          {selectedOperator} is already operating <Text style={styles.bold}>{otherMachines.map((m) => `${m.machineCode} (${m.shift})`).join(', ')}</Text>.
+                          {selectedOperator} is already operating <Text style={styles.bold}>{otherMachines.map((m: any) => `${m.machineCode} (${m.shift})`).join(', ')}</Text>.
                         </Text>
                         <Text style={styles.bannerMultiNote}>
-                          They will now manage both {otherMachines.map((m) => m.machineCode).join(', ')} and {machine.code}.
+                          They will now manage both {otherMachines.map((m: any) => m.machineCode).join(', ')} and {machine.code}.
                         </Text>
                       </View>
                     </View>
@@ -678,7 +678,7 @@ export function MachineDetailScreen({ navigation, route }: Props) {
               />
               <Button
                 label={
-                  activeAssignments[selectedOperator]?.machines?.some((m) => m.machineId !== machine.id)
+                  activeAssignments[selectedOperator]?.machines?.some((m: any) => m.machineId !== machine.id)
                     ? 'Assign (Multi-Machine)'
                     : `Assign to ${machine.code}`
                 }

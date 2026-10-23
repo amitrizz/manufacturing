@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SearchField } from '../../components/common/SearchField';
-import { searchMachines } from '../../database/repositories/machineRepository';
-import { searchMaterials } from '../../database/repositories/materialRepository';
-import { searchProductionOrders } from '../../database/repositories/productionOrderRepository';
-import { searchProducts } from '../../database/repositories/productRepository';
-import { searchInspectionsByBatch } from '../../database/repositories/qualityRepository';
-import { searchDispatchOrders } from '../../database/repositories/dispatchRepository';
+import { searchMachines } from '../../api/repositories/machineRepository';
+import { searchMaterials } from '../../api/repositories/materialRepository';
+import { searchProductionOrders } from '../../api/repositories/productionOrderRepository';
+import { searchProducts } from '../../api/repositories/productRepository';
+import { searchInspectionsByBatch } from '../../api/repositories/qualityRepository';
+import { searchDispatchOrders } from '../../api/repositories/dispatchRepository';
 import { colors, spacing, typography } from '../../theme';
 
 type Result = { type: string; label: string; sub?: string };

@@ -4,7 +4,7 @@ import { notifyDataChanged } from '../store/dataRefreshStore';
 import {
   getMaterialAvailabilityForOrder,
   getProductionOrderById,
-} from '../database/repositories/productionOrderRepository';
+} from '../api/repositories/productionOrderRepository';
 import { requiredMaterial } from '../utils/calculations';
 
 export class ProductionBlockedError extends Error {
@@ -144,15 +144,19 @@ export async function recordProduction(input: RecordProductionInput): Promise<vo
       for (const item of items) {
         const mat = materials.find((m) => m.id === item.material_id || m._id === item.material_id);
         if (!mat) continue;
-        const need = requiredMaterial(item.quantity, outputUnits);
-        if ((mat.current_stock || 0) < need) {
+        const qtyPerUnit = Number(item.quantity ?? item.quantity_required ?? 1);
+        const need = requiredMaterial(qtyPerUnit, outputUnits);
+        const currentStock = Number(mat.current_stock ?? mat.stock_quantity ?? 0);
+        if (currentStock < need) {
           throw new ProductionBlockedError(
-            `Not enough ${mat.code}: need ${need} ${mat.unit || 'units'}, have ${mat.current_stock || 0}`,
+            `Not enough ${mat.code}: need ${need} ${mat.unit || 'units'}, have ${currentStock}`,
           );
         }
 
+        const newStock = Math.max(0, currentStock - need);
         await mongoApi.update('materials', mat.id || mat._id, {
-          current_stock: Math.max(0, (mat.current_stock || 0) - need),
+          current_stock: newStock,
+          stock_quantity: newStock,
           updated_at: now,
         });
 
@@ -183,6 +187,8 @@ export async function recordProduction(input: RecordProductionInput): Promise<vo
     shift: input.shift,
     good_quantity: input.goodQuantity,
     rejected_quantity: input.rejectedQuantity,
+    quantity_produced: input.goodQuantity,
+    scrap_quantity: input.rejectedQuantity,
     operator: input.operator ?? null,
     notes: input.notes ?? null,
     entry_timestamp: now,
@@ -207,6 +213,9 @@ export async function recordProduction(input: RecordProductionInput): Promise<vo
     const machine = machines.find((m) => m.id === input.machineId || m._id === input.machineId);
     if (machine) {
       await mongoApi.update('machines', input.machineId, {
+        status: 'RUNNING',
+        current_product_id: order.product_id,
+        current_operator: input.operator || machine.current_operator,
         runtime_seconds: (machine.runtime_seconds || 0) + 3600,
         updated_at: now,
       });
@@ -217,8 +226,14 @@ export async function recordProduction(input: RecordProductionInput): Promise<vo
     const fgList = await mongoApi.getCollection<any>('finished_goods');
     const fg = fgList.find((f) => f.product_id === order.product_id);
     if (fg) {
+      const isQcPassed = order.qc_status === 'PASSED' || order.qc_status === 'WAIVED';
       await mongoApi.update('finished_goods', fg.id || fg._id, {
         produced_quantity: (fg.produced_quantity || 0) + input.goodQuantity,
+        quality_passed_quantity: isQcPassed
+          ? (fg.quality_passed_quantity || 0) + input.goodQuantity
+          : (fg.quality_passed_quantity || 0),
+        available_quantity: (fg.available_quantity || 0) + input.goodQuantity,
+        rejected_quantity: (fg.rejected_quantity || 0) + (input.rejectedQuantity || 0),
         updated_at: now,
       });
     }

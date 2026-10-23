@@ -1,0 +1,118 @@
+export const purchaseSchemas = {
+  suppliers: {
+    bsonType: 'object',
+    required: ['name'],
+    properties: {
+      id: { bsonType: 'string' },
+      name: { bsonType: 'string' },
+      contact_person: { bsonType: ['string', 'null'] },
+      phone: { bsonType: ['string', 'null'] },
+      email: { bsonType: ['string', 'null'] },
+      address: { bsonType: ['string', 'null'] },
+      gst_number: { bsonType: ['string', 'null'] },
+      supplied_items: { bsonType: ['string', 'null'] },
+      rating: { bsonType: ['number', 'null'] },
+      notes: { bsonType: ['string', 'null'] },
+      created_at: { bsonType: 'number' },
+      updated_at: { bsonType: 'number' },
+    },
+  },
+
+  customers: {
+    bsonType: 'object',
+    required: ['name'],
+    properties: {
+      id: { bsonType: 'string' },
+      name: { bsonType: 'string' },
+      contact_person: { bsonType: ['string', 'null'] },
+      phone: { bsonType: ['string', 'null'] },
+      email: { bsonType: ['string', 'null'] },
+      address: { bsonType: ['string', 'null'] },
+      gst_number: { bsonType: ['string', 'null'] },
+      created_at: { bsonType: 'number' },
+      updated_at: { bsonType: 'number' },
+    },
+  },
+
+  purchase_requests: {
+    bsonType: 'object',
+    required: ['request_number', 'material_id', 'quantity', 'status'],
+    properties: {
+      id: { bsonType: 'string' },
+      request_number: { bsonType: 'string' },
+      material_id: { bsonType: 'string' },
+      quantity: { bsonType: 'number' },
+      required_by: { bsonType: ['number', 'null'] },
+      requested_by: { bsonType: ['string', 'null'] },
+      status: { enum: ['PENDING', 'APPROVED', 'REJECTED', 'ORDERED'], bsonType: 'string' },
+      linked_order_id: { bsonType: ['string', 'null'] },
+      reason: { bsonType: ['string', 'null'] },
+      created_at: { bsonType: 'number' },
+      updated_at: { bsonType: 'number' },
+    },
+  },
+
+  purchase_orders: {
+    bsonType: 'object',
+    required: ['po_number', 'supplier_id', 'status'],
+    properties: {
+      id: { bsonType: 'string' },
+      po_number: { bsonType: 'string' },
+      supplier_id: { bsonType: 'string' },
+      status: { enum: ['ISSUED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'CANCELLED'], bsonType: 'string' },
+      expected_date: { bsonType: ['number', 'null'] },
+      total_amount: { bsonType: 'number' },
+      tax_amount: { bsonType: 'number' },
+      terms: { bsonType: ['string', 'null'] },
+      created_at: { bsonType: 'number' },
+      updated_at: { bsonType: 'number' },
+    },
+  },
+
+  purchase_order_items: {
+    bsonType: 'object',
+    required: ['po_id', 'material_id', 'quantity', 'unit_rate'],
+    properties: {
+      id: { bsonType: 'string' },
+      po_id: { bsonType: 'string' },
+      material_id: { bsonType: 'string' },
+      quantity: { bsonType: 'number' },
+      unit_rate: { bsonType: 'number' },
+      tax_pct: { bsonType: 'number' },
+      received_quantity: { bsonType: 'number' },
+      created_at: { bsonType: 'number' },
+    },
+  },
+
+  grn_receipts: {
+    bsonType: 'object',
+    required: ['grn_number', 'received_date'],
+    properties: {
+      id: { bsonType: 'string' },
+      grn_number: { bsonType: 'string' },
+      po_id: { bsonType: ['string', 'null'] },
+      supplier_id: { bsonType: ['string', 'null'] },
+      received_date: { bsonType: 'number' },
+      invoice_number: { bsonType: ['string', 'null'] },
+      notes: { bsonType: ['string', 'null'] },
+      created_at: { bsonType: 'number' },
+      updated_at: { bsonType: 'number' },
+    },
+  },
+
+  stock_transactions: {
+    bsonType: 'object',
+    required: ['material_id', 'transaction_type', 'quantity'],
+    properties: {
+      id: { bsonType: 'string' },
+      material_id: { bsonType: 'string' },
+      transaction_type: { enum: ['IN', 'OUT', 'ADJUSTMENT', 'TRANSFER'], bsonType: 'string' },
+      category: { bsonType: ['string', 'null'] },
+      quantity: { bsonType: 'number' },
+      reference_type: { bsonType: ['string', 'null'] },
+      reference_id: { bsonType: ['string', 'null'] },
+      notes: { bsonType: ['string', 'null'] },
+      created_at: { bsonType: 'number' },
+    },
+  },
+};

@@ -16,16 +16,17 @@ import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
 import { Screen } from '../../components/common/Screen';
 import { SearchField } from '../../components/common/SearchField';
+import { UnitPicker } from '../../components/common/UnitPicker';
 import {
   createMaterial,
   deleteMaterial,
   listMaterials,
   updateMaterial,
-} from '../../database/repositories/materialRepository';
+} from '../../api/repositories/materialRepository';
 import {
   listStockTransactions,
   recordStockMovement,
-} from '../../database/repositories/stockTransactionRepository';
+} from '../../api/repositories/stockTransactionRepository';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import { colors, spacing, typography } from '../../theme';
 import type {
@@ -664,12 +665,11 @@ export function StockHomeScreen() {
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.inputLabel}>Unit *</Text>
-                  <TextInput
-                    style={styles.input}
+                  <UnitPicker
+                    label="Unit"
+                    required
                     value={itemUnit}
-                    onChangeText={setItemUnit}
-                    placeholder="e.g. kg, pcs, m"
+                    onChange={setItemUnit}
                   />
                 </View>
               </View>

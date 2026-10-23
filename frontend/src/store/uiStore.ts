@@ -7,5 +7,5 @@ type UiState = {
 
 export const useUiStore = create<UiState>((set) => ({
   isDbReady: false,
-  setDbReady: (ready) => set({ isDbReady: ready }),
+  setDbReady: (ready: boolean) => set({ isDbReady: ready }),
 }));

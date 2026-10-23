@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { countUnreadNotifications } from '../../database/repositories/notificationRepository';
+import { countUnreadNotifications } from '../../api/repositories/notificationRepository';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import { colors } from '../../theme';
 

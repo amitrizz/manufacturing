@@ -8,7 +8,7 @@ import {
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
-} from '../../database/repositories/notificationRepository';
+} from '../../api/repositories/notificationRepository';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import { navigateToActivityReference } from '../../navigation/navigateToReference';
 import { colors, spacing, typography } from '../../theme';

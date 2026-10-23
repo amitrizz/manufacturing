@@ -4,7 +4,7 @@ import { useLiveQuery } from '../../hooks/useLiveQuery';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SearchField } from '../../components/common/SearchField';
 import { StatusBadge } from '../../components/common/StatusBadge';
-import { listMaterials } from '../../database/repositories/materialRepository';
+import { listMaterials } from '../../api/repositories/materialRepository';
 import type { MaterialRow } from '../../types/database';
 import type { MoreStackParamList } from '../../navigation/types';
 import { colors, spacing, typography } from '../../theme';

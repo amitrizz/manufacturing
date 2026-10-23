@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { initializeDatabase } from './src/database/initializeDatabase';
+import { mongoApi } from './src/api/client';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { useAuthStore } from './src/store/authStore';
 import { useSubscriptionStore } from './src/store/subscriptionStore';
@@ -29,7 +29,9 @@ export default function App() {
     let cancelled = false;
     (async () => {
       try {
-        await initializeDatabase();
+        await mongoApi.getHealth().catch((err) => {
+          console.warn('Backend API connection check warning:', err);
+        });
         await Promise.all([
           hydrateTheme(),
           hydrateLanguage(),

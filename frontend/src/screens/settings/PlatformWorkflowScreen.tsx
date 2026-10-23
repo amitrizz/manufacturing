@@ -12,7 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../../components/common/Card';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
-import { getDatabaseStats, type DatabaseStats } from '../../database/repositories/statsRepository';
+import { getDatabaseStats, type DatabaseStats } from '../../api/repositories/statsRepository';
 import { colors, spacing } from '../../theme';
 
 type ViewTab = 'pipeline' | 'roles' | 'checklist';
@@ -221,6 +221,8 @@ const PIPELINE_STAGES: PipelineStage[] = [
         whyItMatters: 'Know exact available-to-promise inventory for sales orders.',
         route: 'FinishedGoods',
         actionLabel: 'Finished Goods',
+        countKey: 'finishedGoods',
+        unit: 'items',
       },
       {
         title: 'Customer Directory',
@@ -389,7 +391,7 @@ export function PlatformWorkflowScreen() {
     if (stats.products > 0) completedCount++;
     if (stats.productionOrders > 0) completedCount++;
     if (stats.inspections > 0) completedCount++;
-    if (stats.dispatches > 0) completedCount++;
+    if (stats.finishedGoods > 0 || stats.dispatches > 0) completedCount++;
   }
   const completionPercent = Math.round((completedCount / totalStages) * 100);
 
@@ -729,10 +731,10 @@ export function PlatformWorkflowScreen() {
                 {
                   id: 'dispatches',
                   label: '9. Finished Goods & Dispatch',
-                  count: stats?.dispatches ?? 0,
-                  unit: 'shipments',
-                  route: 'Dispatch',
-                  action: '+ Dispatch Order',
+                  count: (stats?.finishedGoods ?? 0) + (stats?.dispatches ?? 0),
+                  unit: 'items / shipments',
+                  route: stats?.finishedGoods ? 'FinishedGoods' : 'Dispatch',
+                  action: stats?.finishedGoods ? 'View Goods' : '+ Dispatch Order',
                 },
               ].map((item) => {
                 const isReady = item.count > 0;

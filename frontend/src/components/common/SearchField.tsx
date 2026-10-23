@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
-import { colors } from '../../theme';
+import { colors, spacing } from '../../theme';
 
 type Props = {
   value: string;
@@ -39,22 +39,22 @@ export function SearchField({
         name="search"
         size={18}
         color={isFocused ? colors.primary : colors.textMuted}
-        style={styles.searchIcon}
+        style={styles.icon}
       />
       <TextInput
         style={styles.input}
         value={local}
         onChangeText={setLocal}
-        onFocus={() => setIsFocused(true)}
-        onBlur={() => setIsFocused(false)}
         placeholder={placeholder}
         placeholderTextColor={colors.textMuted}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
         autoCapitalize="none"
         autoCorrect={false}
       />
       {local.length > 0 && (
-        <Pressable onPress={handleClear} hitSlop={8} style={styles.clearBtn}>
-          <Ionicons name="close-circle" size={17} color={colors.textMuted} />
+        <Pressable onPress={handleClear} hitSlop={8}>
+          <Ionicons name="close-circle" size={18} color={colors.textMuted} />
         </Pressable>
       )}
     </View>
@@ -69,29 +69,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 12,
-    paddingHorizontal: 12,
-    height: 44,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    marginBottom: spacing.md,
   },
   containerFocused: {
     borderColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.12,
-    shadowRadius: 3,
-    elevation: 2,
   },
-  searchIcon: {
-    marginRight: 8,
+  icon: {
+    marginRight: spacing.sm,
   },
   input: {
     flex: 1,
+    fontSize: 15,
     color: colors.text,
-    fontSize: 14,
-    paddingVertical: 0,
-  },
-  clearBtn: {
-    padding: 2,
-    marginLeft: 4,
+    padding: 0,
   },
 });
-

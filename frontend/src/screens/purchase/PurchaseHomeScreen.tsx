@@ -15,7 +15,7 @@ import {
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
 import { Screen } from '../../components/common/Screen';
-import { listMaterials } from '../../database/repositories/materialRepository';
+import { listMaterials } from '../../api/repositories/materialRepository';
 import {
   createPurchaseOrder,
   createPurchaseRequest,
@@ -28,8 +28,8 @@ import {
   listPurchaseRequests,
   receiveGrn,
   updatePurchaseRequestStatus,
-} from '../../database/repositories/purchaseRepository';
-import { listSuppliers } from '../../database/repositories/supplierRepository';
+} from '../../api/repositories/purchaseRepository';
+import { listSuppliers } from '../../api/repositories/supplierRepository';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import { colors, spacing, typography } from '../../theme';
 import type {
@@ -169,8 +169,8 @@ export function PurchaseHomeScreen() {
     setPoItems(items);
     const map: Record<string, string> = {};
     for (const item of items) {
-      const remaining = Math.max(0, item.quantity - item.received_quantity);
-      map[item.material_id] = remaining.toString();
+      const remaining = Math.max(0, (item.quantity || 0) - (item.received_quantity || 0));
+      map[item.material_id] = String(remaining);
     }
     setReceivedQtyMap(map);
     setInvoiceNumber('');
@@ -197,8 +197,8 @@ export function PurchaseHomeScreen() {
     setPoItems(items);
     const map: Record<string, string> = {};
     for (const item of items) {
-      const remaining = Math.max(0, item.quantity - item.received_quantity);
-      map[item.material_id] = remaining.toString();
+      const remaining = Math.max(0, (item.quantity || 0) - (item.received_quantity || 0));
+      map[item.material_id] = String(remaining);
     }
     setReceivedQtyMap(map);
   };
@@ -614,13 +614,13 @@ export function PurchaseHomeScreen() {
                     </View>
                   </View>
                   <Text style={styles.grnTimestamp}>
-                    {new Date(item.received_date || item.created_at).toLocaleDateString(undefined, {
+                    {new Date(item.received_date || item.created_at || item.received_at || Date.now()).toLocaleDateString(undefined, {
                       month: 'short',
                       day: 'numeric',
                       year: 'numeric',
                     })}{' '}
                     •{' '}
-                    {new Date(item.received_date || item.created_at).toLocaleTimeString([], {
+                    {new Date(item.received_date || item.created_at || item.received_at || Date.now()).toLocaleTimeString([], {
                       hour: '2-digit',
                       minute: '2-digit',
                     })}
@@ -668,7 +668,7 @@ export function PurchaseHomeScreen() {
                     Items Inwarded ({item.items.length} {item.items.length === 1 ? 'item' : 'items'}
                     {item.total_qty ? ` • Total: ${formatNumber(item.total_qty)}` : ''})
                   </Text>
-                  {item.items.map((it, idx) => (
+                  {item.items.map((it: any, idx: number) => (
                     <View key={idx} style={styles.grnItemPill}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
                         <Ionicons name="cube-outline" size={13} color={colors.primary} />

@@ -15,11 +15,11 @@ import {
 } from 'react-native';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
-import { listMachines } from '../../database/repositories/machineRepository';
+import { listMachines } from '../../api/repositories/machineRepository';
 import {
   createMaintenanceOrder,
   listMaintenanceOrders,
-} from '../../database/repositories/maintenanceRepository';
+} from '../../api/repositories/maintenanceRepository';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import type { MoreStackParamList } from '../../navigation/types';
 import { colors, spacing, typography } from '../../theme';

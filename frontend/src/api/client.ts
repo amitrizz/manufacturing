@@ -3,10 +3,11 @@ import { Platform } from 'react-native';
 
 const STORAGE_KEY_API_URL = '@mfg_api_url';
 
-// Multi-endpoint candidate list for seamless connectivity across Cloud, Wi-Fi, 4G/5G, and emulators
-const CANDIDATE_URLS: string[] = [
-  'https://manufacturing-i0lp.onrender.com',
-  process.env.EXPO_PUBLIC_API_URL || '',
+// Remote endpoint for production APK builds and cloud fallback
+const REMOTE_URL = (process.env.EXPO_PUBLIC_API_URL || 'https://manufacturing-i0lp.onrender.com').trim().replace(/\/+$/, '');
+
+// Local candidate endpoints for development (LAN IP, Android emulator, localhost)
+const LOCAL_URLS: string[] = [
   'http://192.168.1.53:5000',
   Platform.select({
     android: 'http://10.0.2.2:5000',
@@ -15,8 +16,39 @@ const CANDIDATE_URLS: string[] = [
   'http://localhost:5000',
 ].filter((url): url is string => Boolean(url && url.trim()));
 
+// In dev mode (running Expo), prioritize local backend first; in APK build, use remote server first
+const CANDIDATE_URLS: string[] = __DEV__
+  ? [...LOCAL_URLS, REMOTE_URL]
+  : [REMOTE_URL, ...LOCAL_URLS];
+
 let cachedBaseUrl: string | null = null;
 let isResolving: Promise<string> | null = null;
+let activeCompanyId: string | null = null;
+
+export function setActiveCompanyId(id: string | null): void {
+  activeCompanyId = id;
+}
+
+export function getActiveCompanyId(): string | null {
+  return activeCompanyId;
+}
+
+export async function resolveActiveCompanyId(): Promise<string | null> {
+  if (activeCompanyId) return activeCompanyId;
+  try {
+    const raw = await AsyncStorage.getItem('mfg_auth_session');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.companyId) {
+        activeCompanyId = parsed.companyId;
+        return parsed.companyId;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
 
 async function pingUrl(url: string, timeoutMs = 2500): Promise<boolean> {
   const clean = url.trim().replace(/\/+$/, '');
@@ -95,19 +127,23 @@ export async function apiFetch<T>(endpoint: string, options: RequestInit = {}): 
   let baseUrl = await getApiBaseUrl();
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   const method = (options.method || 'GET').toUpperCase();
+  const companyId = await resolveActiveCompanyId();
 
   const makeRequest = async (urlHost: string) => {
     const url = `${urlHost}${cleanEndpoint}`;
     console.log(`🌐 [API ${method}] -> ${url}`);
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'Bypass-Tunnel-Reminder': 'true',
+      'bypass-tunnel-reminder': 'true',
+      ...(companyId ? { 'x-company-id': companyId } : {}),
+      ...((options.headers as Record<string, string>) || {}),
+    };
+
     return fetch(url, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'Bypass-Tunnel-Reminder': 'true',
-        'bypass-tunnel-reminder': 'true',
-        ...(options.headers || {}),
-      },
+      headers,
     });
   };
 
@@ -149,7 +185,11 @@ export const mongoApi = {
   },
 
   async getCollection<T>(name: string, queryParams: Record<string, unknown> = {}): Promise<T[]> {
+    const companyId = (queryParams.company_id as string) || (await resolveActiveCompanyId());
     const query = new URLSearchParams();
+    if (companyId && name !== 'companies' && name !== 'units' && !queryParams.company_id) {
+      query.append('company_id', String(companyId));
+    }
     for (const [key, val] of Object.entries(queryParams)) {
       if (val !== undefined && val !== null) {
         query.append(key, String(val));
@@ -164,9 +204,14 @@ export const mongoApi = {
   },
 
   async insert<T>(name: string, doc: Partial<T>): Promise<T> {
+    const companyId = (doc as any)?.company_id || (await resolveActiveCompanyId());
+    const payload = { ...doc };
+    if (companyId && name !== 'companies' && name !== 'units' && !(payload as any).company_id) {
+      (payload as any).company_id = companyId;
+    }
     return apiFetch<T>(`/api/collections/${name}`, {
       method: 'POST',
-      body: JSON.stringify(doc),
+      body: JSON.stringify(payload),
     });
   },
 
@@ -258,6 +303,10 @@ export const mongoApi = {
     return apiFetch<{ success: boolean }>(`/api/purchase/delete-grn/${id}`, {
       method: 'DELETE',
     });
+  },
+
+  async getAllData(): Promise<{ success: boolean; data: Record<string, any[]> }> {
+    return apiFetch<{ success: boolean; data: Record<string, any[]> }>('/api/database/all');
   },
 
   // Database actions

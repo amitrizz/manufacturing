@@ -5,13 +5,14 @@ import {
   getCompanyById,
   verifyCompanyAdmin,
   type CreateCompanyInput,
-} from '../database/repositories/companyRepository';
+} from '../api/repositories/companyRepository';
 import {
   ensureCompanyRolesSeeded,
   getRoleById,
   getRoleByName,
-} from '../database/repositories/roleRepository';
-import { verifyStaffLogin } from '../database/repositories/staffRepository';
+} from '../api/repositories/roleRepository';
+import { verifyStaffLogin } from '../api/repositories/staffRepository';
+import { setActiveCompanyId } from '../api/client';
 import type { CompanyRow, StaffRole } from '../types/database';
 
 const AUTH_STORAGE_KEY = 'mfg_auth_session';
@@ -121,6 +122,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (parsed?.companyId && parsed?.user) {
           const company = await getCompanyById(parsed.companyId);
           if (company) {
+            setActiveCompanyId(company.id);
             set({
               user: parsed.user,
               company,
@@ -134,6 +136,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch {
       // Ignore corrupted session and fallback to logged out
     }
+    setActiveCompanyId(null);
     set({ user: null, company: null, isAuthenticated: false, isHydrated: true });
   },
 
@@ -143,6 +146,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       throw new Error('Invalid Company Code / Email or Admin Password.');
     }
 
+    setActiveCompanyId(comp.id);
     await ensureCompanyRolesSeeded(comp.id);
 
     const adminUser: AuthUser = {
@@ -150,7 +154,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       name: `${comp.name} Admin`,
       role: 'ADMIN',
       type: 'COMPANY_ADMIN',
-      email: comp.admin_email,
+      email: comp.admin_email || undefined,
       permissions: ['*'],
     };
 
@@ -175,6 +179,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       );
     }
 
+    setActiveCompanyId(res.company.id);
     await ensureCompanyRolesSeeded(res.company.id);
 
     let permissions: string[] = [];
@@ -216,6 +221,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   registerCompany: async (input: CreateCompanyInput) => {
     const created = await createCompany(input);
+    setActiveCompanyId(created.id);
     await ensureCompanyRolesSeeded(created.id);
 
     const adminUser: AuthUser = {
@@ -223,7 +229,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       name: `${created.name} Admin`,
       role: 'ADMIN',
       type: 'COMPANY_ADMIN',
-      email: created.admin_email,
+      email: created.admin_email || undefined,
       permissions: ['*'],
     };
 
@@ -241,6 +247,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    setActiveCompanyId(null);
     await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
     set({
       user: null,

@@ -27,8 +27,8 @@ import {
   recordAttendance,
   updateStaff,
   type StaffAttendanceSummaryRow,
-} from '../../database/repositories/staffRepository';
-import { listRolesByCompany } from '../../database/repositories/roleRepository';
+} from '../../api/repositories/staffRepository';
+import { listRolesByCompany } from '../../api/repositories/roleRepository';
 import { exportReport } from '../../services/exportService';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import { colors, spacing, typography } from '../../theme';
@@ -180,18 +180,19 @@ export function StaffScreen() {
   const handleOpenEditStaff = (st: StaffRow) => {
     setModalMode('edit');
     setEditingStaffId(st.id);
-    setEmpId(st.employee_id);
-    setName(st.name);
-    setRole(st.role);
+    setEmpId(st.employee_id || '');
+    setName(st.name || '');
+    setRole(st.role || 'OPERATOR');
+    const roleName = (st.role || 'OPERATOR').toUpperCase();
     const matched = companyRoles.find(
-      (r) => r.id === st.role_id || r.name.toUpperCase() === st.role.toUpperCase(),
+      (r) => r.id === st.role_id || r.name.toUpperCase() === roleName,
     );
     setRoleId(matched?.id || st.role_id || null);
     setShift(st.shift || 'Morning');
     setPhone(st.phone || '');
     setSkills(st.skills || '');
     setLoginPin(st.login_pin || '1234');
-    setIsActiveStaff(st.is_active);
+    setIsActiveStaff(st.is_active ? 1 : 0);
     setShowAddStaff(true);
   };
 

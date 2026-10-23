@@ -59,21 +59,16 @@ export function performancePct(actualOutput: number, expectedOutput: number): nu
   return expectedOutput > 0 ? (actualOutput / expectedOutput) * 100 : 0;
 }
 
-export function qualityPctOee(goodQty: number, rejectedQty: number): number {
-  const total = goodQty + rejectedQty;
-  return total > 0 ? (goodQty / total) * 100 : 0;
-}
-
 export function computeOee(
   runtimeSeconds: number,
   downtimeSeconds: number,
   actualOutput: number,
   expectedOutput: number,
-  goodQty: number,
-  rejectedQty: number,
+  goodOutput: number,
+  rejectOutput: number,
 ): number {
-  const a = availabilityPct(runtimeSeconds, downtimeSeconds) / 100;
-  const p = performancePct(actualOutput, expectedOutput) / 100;
-  const q = qualityPctOee(goodQty, rejectedQty) / 100;
-  return a * p * q * 100;
+  const avail = availabilityPct(runtimeSeconds, downtimeSeconds);
+  const perf = performancePct(actualOutput, expectedOutput);
+  const qual = qualityRatePct(goodOutput, goodOutput + rejectOutput);
+  return (avail * perf * qual) / 10000;
 }

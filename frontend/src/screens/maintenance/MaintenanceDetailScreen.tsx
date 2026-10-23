@@ -6,7 +6,7 @@ import {
   completeMaintenanceOrder,
   deleteMaintenanceOrder,
   getMaintenanceOrderById,
-} from '../../database/repositories/maintenanceRepository';
+} from '../../api/repositories/maintenanceRepository';
 import type { MaintenanceOrderRow } from '../../types/database';
 import type { MoreStackParamList } from '../../navigation/types';
 import { colors, spacing, typography } from '../../theme';

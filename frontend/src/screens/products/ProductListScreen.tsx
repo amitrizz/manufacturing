@@ -12,18 +12,15 @@ import {
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
 import { SearchField } from '../../components/common/SearchField';
-import { deleteProduct, listProducts } from '../../database/repositories/productRepository';
+import { deleteProduct, listProducts } from '../../api/repositories/productRepository';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import type { MoreStackParamList } from '../../navigation/types';
 import { colors, spacing } from '../../theme';
 import type { ProductRow } from '../../types/database';
 
-import { ViewModeBanner } from '../../components/common/ViewModeBanner';
-
 type Props = NativeStackScreenProps<MoreStackParamList, 'Products'>;
 
-export function ProductListScreen({ navigation, route }: Props) {
-  const isViewOnly = Boolean(route.params?.viewOnly);
+export function ProductListScreen({ navigation }: Props) {
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [search, setSearch] = useState('');
 
@@ -74,25 +71,16 @@ export function ProductListScreen({ navigation, route }: Props) {
 
   return (
     <View style={styles.container}>
-      {isViewOnly && (
-        <ViewModeBanner
-          message="Products catalog viewing mode. Creating, editing, and deleting products are disabled. Use the Management tab to make changes."
-        />
-      )}
-
       <View style={styles.topActionsRow}>
-        {!isViewOnly && (
-          <Button
-            label="+ New Product"
-            onPress={() => navigation.navigate('ProductCreate')}
-            style={{ flex: 1 }}
-          />
-        )}
+        <Button
+          label="+ New Product"
+          onPress={() => navigation.navigate('ProductCreate')}
+          style={{ flex: 1 }}
+        />
         <Button
           label="BOM Matrix"
           variant="secondary"
-          onPress={() => navigation.navigate('ProductBom', { viewOnly: isViewOnly })}
-          style={isViewOnly ? { flex: 1 } : undefined}
+          onPress={() => navigation.navigate('ProductBom', {})}
         />
       </View>
 
@@ -130,26 +118,24 @@ export function ProductListScreen({ navigation, route }: Props) {
               </Text>
             ) : null}
 
-            {/* Action buttons: Edit & Delete (Hidden in viewOnly mode) */}
-            {!isViewOnly && (
-              <View style={styles.actionRow}>
-                <Pressable
-                  style={styles.editBtn}
-                  onPress={() => navigation.navigate('ProductEdit', { productId: item.id })}
-                >
-                  <Ionicons name="create-outline" size={15} color="#0A1E38" />
-                  <Text style={styles.editBtnText}>Edit</Text>
-                </Pressable>
+            {/* Action buttons: Edit & Delete */}
+            <View style={styles.actionRow}>
+              <Pressable
+                style={styles.editBtn}
+                onPress={() => navigation.navigate('ProductEdit', { productId: item.id })}
+              >
+                <Ionicons name="create-outline" size={15} color="#0A1E38" />
+                <Text style={styles.editBtnText}>Edit</Text>
+              </Pressable>
 
-                <Pressable
-                  style={styles.deleteBtn}
-                  onPress={() => handleDeleteProduct(item)}
-                >
-                  <Ionicons name="trash-outline" size={15} color={colors.danger} />
-                  <Text style={styles.deleteBtnText}>Delete</Text>
-                </Pressable>
-              </View>
-            )}
+              <Pressable
+                style={styles.deleteBtn}
+                onPress={() => handleDeleteProduct(item)}
+              >
+                <Ionicons name="trash-outline" size={15} color={colors.danger} />
+                <Text style={styles.deleteBtnText}>Delete</Text>
+              </Pressable>
+            </View>
           </Card>
         )}
       />

@@ -4,8 +4,9 @@ import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-nativ
 import { Button } from '../../components/common/Button';
 import { Screen } from '../../components/common/Screen';
 import { SectionHeader } from '../../components/common/SectionHeader';
-import { listMaterials } from '../../database/repositories/materialRepository';
-import { createProductWithBom } from '../../database/repositories/productRepository';
+import { UnitPicker } from '../../components/common/UnitPicker';
+import { listMaterials } from '../../api/repositories/materialRepository';
+import { createProductWithBom } from '../../api/repositories/productRepository';
 import type { MaterialRow } from '../../types/database';
 import type { MoreStackParamList } from '../../navigation/types';
 import { colors, spacing, typography } from '../../theme';
@@ -19,11 +20,11 @@ type BomDraftLine = {
 };
 
 export function ProductCreateScreen({ navigation }: Props) {
-  const [materials, setMaterials] = useState<MaterialRow[]>([]);
-  const [code, setCode] = useState(() => `P-${Date.now().toString().slice(-4)}`);
+  const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [unit, setUnit] = useState('pcs');
   const [description, setDescription] = useState('');
+  const [materials, setMaterials] = useState<MaterialRow[]>([]);
   const [lines, setLines] = useState<BomDraftLine[]>([]);
 
   useEffect(() => {
@@ -75,7 +76,7 @@ export function ProductCreateScreen({ navigation }: Props) {
 
   return (
     <Screen contentContainerStyle={styles.content}>
-      <Text style={typography.h2}>New product + BOM</Text>
+      <Text style={typography.h2}>New product & BOM</Text>
       <Text style={typography.caption}>
         Define the finished product and which materials (qty per 1 unit) are consumed when you
         produce it.
@@ -87,8 +88,12 @@ export function ProductCreateScreen({ navigation }: Props) {
       <Text style={typography.label}>Product name</Text>
       <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="e.g. Ball Valve 2 inch" />
 
-      <Text style={typography.label}>Unit</Text>
-      <TextInput style={styles.input} value={unit} onChangeText={setUnit} placeholder="pcs, kg, kits…" />
+      <UnitPicker
+        label="Unit"
+        required
+        value={unit}
+        onChange={setUnit}
+      />
 
       <Text style={typography.label}>Description (optional)</Text>
       <TextInput
@@ -175,9 +180,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.background,
+    backgroundColor: colors.surface,
   },
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipTextActive: { color: '#fff', fontWeight: '600' },
-  remove: { color: colors.danger, fontWeight: '600', marginTop: spacing.xs },
+  remove: { color: colors.danger, marginTop: spacing.xs, fontWeight: '600' },
 });

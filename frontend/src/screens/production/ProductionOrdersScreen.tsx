@@ -5,7 +5,7 @@ import { FlatList, View } from 'react-native';
 import { Button } from '../../components/common/Button';
 import { ListRow } from '../../components/common/ListRow';
 import { SearchField } from '../../components/common/SearchField';
-import { listProductionOrders } from '../../database/repositories/productionOrderRepository';
+import { listProductionOrders } from '../../api/repositories/productionOrderRepository';
 import type { ProductionOrderRow } from '../../types/database';
 import type { ProductionStackParamList } from '../../navigation/types';
 import { colors, spacing } from '../../theme';

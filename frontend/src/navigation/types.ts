@@ -16,7 +16,7 @@ export type HomeStackParamList = {
   Management: undefined;
   ProductionOrders: { viewOnly?: boolean } | undefined;
   ProductionOrderCreate: undefined;
-  ProductionOrderDetail: { orderId: string; viewOnly?: boolean };
+  ProductionOrderDetail: { orderId: string; viewOnly?: boolean; autoOpenStartModal?: boolean };
   ProductionFloor: { viewOnly?: boolean } | undefined;
   RecordProduction: { orderId?: string; machineId?: string; viewOnly?: boolean };
   StockHome: { viewOnly?: boolean } | undefined;
@@ -61,7 +61,7 @@ export type ProductionStackParamList = {
   ProductionPlanDetail: { planId: string; viewOnly?: boolean };
   ProductionOrders: { viewOnly?: boolean } | undefined;
   ProductionOrderCreate: undefined;
-  ProductionOrderDetail: { orderId: string; viewOnly?: boolean };
+  ProductionOrderDetail: { orderId: string; viewOnly?: boolean; autoOpenStartModal?: boolean };
   ProductionFloor: { viewOnly?: boolean } | undefined;
   RecordProduction: { orderId?: string; machineId?: string; viewOnly?: boolean };
 };

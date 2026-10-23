@@ -1,7 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import type { ReportType } from '../database/repositories/reportsRepository';
-import { getReportData } from '../database/repositories/reportsRepository';
+import type { ReportType } from '../api/repositories/reportsRepository';
+import { getReportData } from '../api/repositories/reportsRepository';
 
 function rowsToCsv(rows: Record<string, unknown>[]): string {
   if (rows.length === 0) return '';

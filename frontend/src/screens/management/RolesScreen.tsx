@@ -22,7 +22,7 @@ import {
   ensureCompanyRolesSeeded,
   listRolesByCompany,
   updateRole,
-} from '../../database/repositories/roleRepository';
+} from '../../api/repositories/roleRepository';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
 import { useAuthStore } from '../../store/authStore';
 import { colors, spacing, typography } from '../../theme';
@@ -79,9 +79,9 @@ export function RolesScreen() {
   const handleOpenEdit = (role: CompanyRoleRow) => {
     setModalMode('edit');
     setEditingRoleId(role.id);
-    setRoleName(role.name);
+    setRoleName(role.name || '');
     setRoleDesc(role.description || '');
-    setSelectedPermissions([...role.permissions]);
+    setSelectedPermissions([...(role.permissions || [])]);
     setModalVisible(true);
   };
 

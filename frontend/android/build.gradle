@@ -22,17 +22,3 @@ allprojects {
 
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"
-
-// expo-log-box needs expo-modules-core on compile classpath
-subprojects { subproject ->
-  subproject.pluginManager.withPlugin("com.android.library") {
-    subproject.afterEvaluate {
-      if (subproject.name == "expo-log-box") {
-        subproject.dependencies.add(
-          "implementation",
-          subproject.rootProject.project(":expo-modules-core")
-        )
-      }
-    }
-  }
-}
