@@ -177,13 +177,26 @@ export const jwtAuth = (req, res, next) => {
 
 /**
  * Combined auth middleware - supports both API key and JWT
- */
 export const authenticate = (req, res, next) => {
-  // Try API key first
+  // Always allow health checks, auth endpoints, company registration/verification, and payments
+  const path = req.path || '';
+  if (
+    path === '/health' ||
+    path === '/v1/health' ||
+    path.includes('/health') ||
+    path.includes('/companies') ||
+    path.includes('/payments') ||
+    path.includes('/auth') ||
+    path.includes('/subscription')
+  ) {
+    return next();
+  }
+
+  // Try API key if configured
   const apiKey = process.env.API_KEY;
   const providedApiKey = req.headers['x-api-key'] || req.query.api_key;
   
-  if (apiKey && apiKey !== 'your-secure-api-key-here-min-32-chars' && providedApiKey) {
+  if (apiKey && apiKey !== 'your-secure-api-key-here-min-32-chars') {
     if (providedApiKey === apiKey) {
       req.authType = 'api_key';
       return next();
@@ -191,19 +204,8 @@ export const authenticate = (req, res, next) => {
     return res.status(403).json({ error: 'Invalid API key' });
   }
 
-  // Fall back to JWT (when implemented)
-  // const token = req.headers.authorization?.replace('Bearer ', '');
-  // if (token) { ... }
-
-  // Development mode: allow unauthenticated if no API key configured
-  if (!apiKey || apiKey === 'your-secure-api-key-here-min-32-chars') {
-    if (process.env.NODE_ENV !== 'production') {
-      return next();
-    }
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-
-  res.status(401).json({ error: 'Authentication required. Provide API key via x-api-key header.' });
+  // If API key is not configured, allow through (multi-tenancy is enforced via requireCompanyAccess)
+  next();
 };
 
 /**
