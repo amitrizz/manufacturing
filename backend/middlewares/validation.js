@@ -177,6 +177,7 @@ export const jwtAuth = (req, res, next) => {
 
 /**
  * Combined auth middleware - supports both API key and JWT
+ */
 export const authenticate = (req, res, next) => {
   // Always allow health checks, auth endpoints, company registration/verification, and payments
   const path = req.path || '';

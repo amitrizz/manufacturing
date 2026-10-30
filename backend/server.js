@@ -5,7 +5,7 @@ import { connectToMongo, DB_NAME } from './config/db.js';
 import apiRoutes from './routes/index.js';
 import { errorHandler } from './middlewares/errorHandler.js';
 import { tenantMiddleware } from './middlewares/tenant.js';
-import { authenticate, createRateLimiter, corsMiddleware } from './middlewares/validation.js';
+import { createRateLimiter, corsMiddleware } from './middlewares/validation.js';
 import { logger, logApiRequest, logApiResponse } from './utils/logger.js';
 
 dotenv.config();
