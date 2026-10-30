@@ -11,10 +11,11 @@ router.get('/health', async (req, res) => {
       status: 'ok',
       database: DB_NAME,
       collectionsCount: cols.length,
-      cluster: 'cluster0.tysk0hr.mongodb.net',
+      version: '2.0.0',
+      timestamp: Date.now(),
     });
   } catch (err) {
-    res.status(500).json({ status: 'error', error: err.message });
+    res.status(503).json({ status: 'error', error: err.message });
   }
 });
 

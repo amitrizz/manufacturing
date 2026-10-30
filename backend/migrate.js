@@ -1,25 +1,21 @@
 import { MongoClient } from 'mongodb';
 import dotenv from 'dotenv';
 import { DEFAULT_UNITS } from './seed/units.seed.js';
+import { logMigration } from './utils/logger.js';
 
 dotenv.config();
 
-const MONGODB_URI =
-  process.env.DATABASE_URL ||
-  'mongodb+srv://amit:amit@cluster0.tysk0hr.mongodb.net/manufacturing?retryWrites=true&w=majority&appName=Cluster0';
-
+const MONGODB_URI = process.env.DATABASE_URL;
 const DB_NAME = process.env.MONGODB_DB_NAME || 'manufacturing';
 
-console.log('--------------------------------------------------');
-console.log('🚀 Manufacturing Multi-Tenant Schema & Index Setup');
-console.log(`📦 Target Database: ${DB_NAME}`);
-console.log(`🌐 Target Cluster: cluster0.tysk0hr.mongodb.net`);
-console.log('--------------------------------------------------');
+if (!MONGODB_URI) {
+  throw new Error('DATABASE_URL environment variable is not defined. Copy .env.example to .env and configure it.');
+}
 
 async function safeDropIndex(col, indexName) {
   try {
     await col.dropIndex(indexName);
-    console.log(`  Dropped legacy index: ${indexName} on ${col.collectionName}`);
+    logMigration('DROP_INDEX', `Dropped legacy index: ${indexName}`, { collection: col.collectionName });
   } catch {
     // index may not exist, ignore
   }
@@ -32,9 +28,9 @@ export async function runMigration(existingDb = null) {
     let db = existingDb;
     if (!db) {
       client = new MongoClient(MONGODB_URI);
-      console.log('Connecting to MongoDB cluster...');
+      logMigration('CONNECT', 'Connecting to MongoDB cluster...');
       await client.connect();
-      console.log('✅ Connected successfully!');
+      logMigration('CONNECTED', 'Connected successfully!');
       db = client.db(DB_NAME);
     }
 
@@ -61,12 +57,14 @@ export async function runMigration(existingDb = null) {
         { upsert: true }
       );
     }
-    console.log(`✅ Collection 'units': Seeded ${DEFAULT_UNITS.length} standard industrial units.`);
+    logMigration('SEED_UNITS', `Collection 'units': Seeded ${DEFAULT_UNITS.length} standard industrial units.`);
 
     // 2. Multi-tenant backfill: assign any existing unassigned records to default company
     const firstCompany = await db.collection('companies').findOne({});
     const defaultCompanyId = firstCompany?.id || firstCompany?._id || '11bfc9aa-755b-42af-9ee8-cdabb6172079';
-    console.log(`\n🏢 Default Company for backfill: ${defaultCompanyId} (${firstCompany?.name || 'Logix technova'})`);
+    logMigration('BACKFILL_START', `Default Company for backfill: ${defaultCompanyId}`, { 
+      companyName: firstCompany?.name || 'Logix technova' 
+    });
 
     const tenantCollections = [
       'staff',
@@ -102,12 +100,12 @@ export async function runMigration(existingDb = null) {
         { $set: { company_id: defaultCompanyId } }
       );
       if (res.modifiedCount > 0) {
-        console.log(`  Backfilled ${res.modifiedCount} docs in '${colName}' with company_id=${defaultCompanyId}`);
+        logMigration('BACKFILL', `Backfilled ${res.modifiedCount} docs`, { collection: colName, companyId: defaultCompanyId });
       }
     }
 
     // 3. Drop legacy global unique indexes that block multi-tenancy
-    console.log('\n--- Dropping Legacy Global Indexes ---');
+    logMigration('DROP_INDEXES_START', 'Dropping Legacy Global Indexes');
     await safeDropIndex(db.collection('products'), 'code_1');
     await safeDropIndex(db.collection('materials'), 'code_1');
     await safeDropIndex(db.collection('machines'), 'code_1');
@@ -119,7 +117,7 @@ export async function runMigration(existingDb = null) {
     await safeDropIndex(db.collection('production_lines'), 'code_1');
 
     // 4. Set up compound multi-tenant unique indexes
-    console.log('\n--- Creating Multi-Tenant Compound Indexes ---');
+    logMigration('CREATE_INDEXES_START', 'Creating Multi-Tenant Compound Indexes');
     try {
       await db.collection('companies').createIndex({ company_code: 1 }, { unique: true, sparse: true });
       await db.collection('staff').createIndex({ company_id: 1, employee_id: 1 }, { unique: true, sparse: true });
@@ -136,24 +134,24 @@ export async function runMigration(existingDb = null) {
       await db.collection('units').createIndex({ code: 1 }, { unique: true, sparse: true });
       await db.collection('stock_transactions').createIndex({ company_id: 1, reference_type: 1, reference_id: 1 });
       await db.collection('activity_history').createIndex({ company_id: 1, timestamp: -1 });
-      console.log('✅ Multi-tenant compound unique & query indexes created.');
+      logMigration('CREATE_INDEXES_COMPLETE', 'Multi-tenant compound unique & query indexes created.');
     } catch (idxErr) {
-      console.warn('Index creation notice:', idxErr.message);
+      logMigration('INDEX_WARNING', 'Index creation notice', { error: idxErr.message });
     }
 
     const summary = await db.listCollections().toArray();
-    console.log('\n--------------------------------------------------');
-    console.log('🎉 Setup Completed! Database is clean & multi-tenant ready.');
-    console.log(`Database: ${DB_NAME}`);
-    console.log(`Total Collections: ${summary.length}`);
+    logMigration('COMPLETE', 'Setup Completed! Database is clean & multi-tenant ready.', { 
+      database: DB_NAME, 
+      totalCollections: summary.length 
+    });
     return { success: true, count: summary.length };
   } catch (err) {
-    console.error('❌ Migration failed:', err);
+    logMigration('FAILED', 'Migration failed', { error: err.message, stack: err.stack });
     throw err;
   } finally {
     if (client) {
       await client.close();
-      console.log('Connection closed.');
+      logMigration('CLOSE', 'Connection closed.');
     }
   }
 }

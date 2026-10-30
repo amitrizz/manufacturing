@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireCompanyAccess } from '../middlewares/validation.js';
 import healthRoutes from './health.routes.js';
 import dashboardRoutes from './dashboard.routes.js';
 import machineRoutes from './machine.routes.js';
@@ -10,7 +11,18 @@ import databaseRoutes from './database.routes.js';
 
 const apiRouter = Router();
 
+// Health check (no auth required)
 apiRouter.use(healthRoutes);
+
+// Company registration and Subscription / Payment (flexible company resolution)
+import companyRoutes from './company.routes.js';
+import paymentRoutes from './payment.routes.js';
+apiRouter.use(companyRoutes);
+apiRouter.use(paymentRoutes);
+
+// Require company access for all multi-tenant routes
+apiRouter.use(requireCompanyAccess);
+
 apiRouter.use(dashboardRoutes);
 apiRouter.use(machineRoutes);
 apiRouter.use(productionRoutes);

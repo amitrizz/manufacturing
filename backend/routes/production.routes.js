@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import { connectToMongo, normalizeDoc } from '../config/db.js';
+import { validate, validateObjectId, paginationSchema } from '../middlewares/validation.js';
+import { z } from 'zod';
 
 const router = Router();
 
-router.get('/production-orders', async (req, res) => {
+// GET /production-orders - with pagination
+router.get('/production-orders', validate(paginationSchema), async (req, res) => {
   try {
     const database = await connectToMongo();
     const { status } = req.query;
+    const { limit = 50, skip = 0, sort = 'created_at', order = 'desc' } = req.validatedQuery || {};
     const companyId = req.companyId;
     const scope = companyId ? { $or: [{ company_id: companyId }, { company_id: null }, { company_id: { $exists: false } }] } : {};
 
@@ -35,25 +39,40 @@ router.get('/production-orders', async (req, res) => {
       result = result.filter((o) => o.status === status);
     }
 
-    res.json(result);
+    // Apply pagination
+    const total = result.length;
+    const paginated = result.slice(skip, skip + limit);
+
+    res.json({
+      data: paginated,
+      pagination: {
+        total,
+        limit,
+        skip,
+        hasMore: skip + limit < total,
+      },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post('/production-orders/:id/start', async (req, res) => {
+// POST /production-orders/:id/start
+router.post('/production-orders/:id/start', validateObjectId('id'), async (req, res) => {
   try {
     const database = await connectToMongo();
     const { id } = req.params;
     const now = Date.now();
 
-    const order = await database.collection('production_orders').findOne({ $or: [{ id }, { _id: id }] });
+    const companyId = req.companyId;
+    const orderFilter = { $or: [{ id }, { _id: id }] };
+    if (companyId) orderFilter.company_id = companyId;
+
+    const order = await database.collection('production_orders').findOne(orderFilter);
     if (!order) return res.status(404).json({ error: 'Production order not found' });
 
-    const companyId = order.company_id || req.companyId || null;
-
     await database.collection('production_orders').updateOne(
-      { $or: [{ id }, { _id: id }] },
+      orderFilter,
       { $set: { status: 'IN_PROGRESS', start_date: order.start_date || now, updated_at: now } }
     );
 
@@ -67,8 +86,8 @@ router.post('/production-orders/:id/start', async (req, res) => {
       reference_id: order.id || order._id,
       timestamp: now,
       created_at: now,
+      company_id: companyId,
     };
-    if (companyId) actDoc.company_id = companyId;
     await database.collection('activity_history').insertOne(actDoc);
 
     res.json({ success: true, orderId: id, status: 'IN_PROGRESS' });

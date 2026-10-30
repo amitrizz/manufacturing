@@ -1,117 +1,261 @@
 import { Router } from 'express';
 import { connectToMongo, normalizeDoc } from '../config/db.js';
+import { validate, dateRangeSchema } from '../middlewares/validation.js';
 
 const router = Router();
 
-router.get('/dashboard/stats', async (req, res) => {
+// Helper: Build date range filter for timestamp fields
+const buildDateFilter = (field, start, end) => {
+  if (!start && !end) return {};
+  const filter = {};
+  if (start) filter[field] = { ...filter[field], $gte: start };
+  if (end) filter[field] = { ...filter[field], $lte: end };
+  return filter;
+};
+
+// Helper: Build company scope filter
+const buildScope = (companyId) => companyId ? { company_id: companyId } : {};
+
+/**
+ * GET /dashboard/stats
+ * Optimized with MongoDB aggregation pipelines for server-side computation
+ */
+router.get('/dashboard/stats', validate(dateRangeSchema), async (req, res) => {
   try {
     const database = await connectToMongo();
     const companyId = req.companyId;
-    const scope = companyId ? { company_id: companyId } : {};
+    const scope = buildScope(companyId);
+    const { start, end } = req.validatedQuery || {};
+    
+    // Default to last 30 days if no range provided
+    const rangeStart = start || Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const rangeEnd = end || Date.now();
+    const todayStr = new Date().toISOString().slice(0, 10);
 
+    // Parallel aggregation pipelines
     const [
-      machines,
-      attendance,
-      activities,
-      orders,
-      entries,
-      inspections,
-      materials,
-      maintenance,
-      lines,
+      machineStats,
+      attendanceStats,
+      recentActivities,
+      productionKpis,
+      qualityStats,
+      materialAlerts,
+      maintenanceStats,
+      lineProgress,
+      monthlyData,
     ] = await Promise.all([
-      database.collection('machines').find(scope).toArray(),
-      database.collection('staff_attendance').find(scope).toArray(),
-      database.collection('activity_history').find(scope).sort({ timestamp: -1, created_at: -1 }).limit(10).toArray(),
-      database.collection('production_orders').find(scope).toArray(),
-      database.collection('production_entries').find(scope).toArray(),
-      database.collection('quality_inspections').find(scope).toArray(),
-      database.collection('materials').find(scope).toArray(),
-      database.collection('maintenance_orders').find(scope).toArray(),
-      database.collection('production_lines').find(scope).toArray(),
+      // 1. Machine status counts (aggregation)
+      database.collection('machines').aggregate([
+        { $match: scope },
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+        { $project: { _id: 0, status: '$_id', count: 1 } },
+      ]).toArray(),
+
+      // 2. Today's attendance (aggregation)
+      database.collection('staff_attendance').aggregate([
+        { $match: { ...scope, $or: [{ date: todayStr }, { date: { $exists: false } }] } },
+        { $group: { 
+          _id: '$status', 
+          count: { $sum: 1 } 
+        }},
+        { $project: { _id: 0, status: '$_id', count: 1 } },
+      ]).toArray(),
+
+      // 3. Recent activities (limited, sorted)
+      database.collection('activity_history')
+        .find(scope)
+        .sort({ timestamp: -1, created_at: -1 })
+        .limit(10)
+        .toArray(),
+
+      // 4. Production KPIs (aggregation)
+      database.collection('production_orders').aggregate([
+        { $match: { ...scope, ...buildDateFilter('start_date', rangeStart, rangeEnd) } },
+        { $group: { 
+          _id: null, 
+          totalTarget: { $sum: { $toDouble: '$target_quantity' } },
+          orderIds: { $push: '$_id' },
+          lineIds: { $push: '$line_id' },
+        }},
+      ]).toArray(),
+
+      // 5. Quality stats (aggregation)
+      database.collection('quality_inspections').aggregate([
+        { $match: { ...scope, ...buildDateFilter('inspected_at', rangeStart, rangeEnd) } },
+        { $group: { 
+          _id: null, 
+          totalInspected: { $sum: { $toDouble: '$quantity' } },
+          totalRejected: { $sum: { $toDouble: '$rejected_quantity' } },
+          pendingCount: { $sum: { $cond: [{ $eq: ['$status', 'PENDING'] }, 1, 0] } },
+        }},
+      ]).toArray(),
+
+      // 6. Low stock materials count
+      database.collection('materials').countDocuments({
+        ...scope,
+        $expr: { $lte: ['$current_stock', '$min_stock'] },
+      }),
+
+      // 7. Open maintenance orders
+      database.collection('maintenance_orders').countDocuments({
+        ...scope,
+        status: { $in: ['OPEN', 'IN_PROGRESS'] },
+      }),
+
+      // 8. Line progress (aggregation with lookup)
+      database.collection('production_lines').aggregate([
+        { $match: scope },
+        { $lookup: {
+          from: 'production_orders',
+          localField: '_id',
+          foreignField: 'line_id',
+          as: 'orders',
+          pipeline: [
+            { $match: { ...scope, ...buildDateFilter('start_date', rangeStart, rangeEnd) } },
+            { $project: { _id: 1 } },
+          ],
+        }},
+        { $lookup: {
+          from: 'production_entries',
+          localField: 'orders._id',
+          foreignField: 'production_order_id',
+          as: 'entries',
+          pipeline: [
+            { $match: { ...scope, ...buildDateFilter('entry_timestamp', rangeStart, rangeEnd) } },
+            { $project: { good_quantity: 1, production_order_id: 1 } },
+          ],
+        }},
+        { $project: {
+          _id: 0,
+          lineCode: '$code',
+          lineName: '$name',
+          produced: { $sum: '$entries.good_quantity' },
+        }},
+      ]).toArray(),
+
+      // 9. Monthly comparison (last 6 months) - aggregation
+      database.collection('production_orders').aggregate([
+        { $match: { ...scope, ...buildDateFilter('start_date', rangeStart, rangeEnd) } },
+        { $group: {
+          _id: {
+            year: { $year: { $toDate: '$start_date' } },
+            month: { $month: { $toDate: '$start_date' } },
+          },
+          target: { $sum: { $toDouble: '$target_quantity' } },
+          orderIds: { $push: '$_id' },
+        }},
+        { $lookup: {
+          from: 'production_entries',
+          localField: 'orderIds',
+          foreignField: 'production_order_id',
+          as: 'entries',
+          pipeline: [
+            { $match: { ...scope, ...buildDateFilter('entry_timestamp', rangeStart, rangeEnd) } },
+            { $project: { good_quantity: 1 } },
+          ],
+        }},
+        { $project: {
+          _id: 0,
+          year: '$_id.year',
+          month: '$_id.month',
+          target: 1,
+          produced: { $sum: '$entries.good_quantity' },
+        }},
+        { $sort: { year: 1, month: 1 } },
+      ]).toArray(),
     ]);
 
-    // Machine breakdown
-    const runningM = machines.filter((m) => m.status === 'RUNNING').length;
-    const breakdownM = machines.filter((m) => m.status === 'BREAKDOWN').length;
-    const maintenanceM = machines.filter((m) => m.status === 'MAINTENANCE').length;
-    const idleM = machines.filter((m) => m.status === 'IDLE' || m.status === 'STOPPED').length;
-    const totalM = machines.length;
-
-    // Attendance (Today's date)
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const todayAttendance = attendance.filter((a) => a.date === todayStr || !a.date);
-    const totalStaff = todayAttendance.length;
-    const present = todayAttendance.filter((a) => a.status === 'PRESENT').length;
-    const halfDay = todayAttendance.filter((a) => a.status === 'HALF_DAY').length;
-    const leave = todayAttendance.filter((a) => a.status === 'LEAVE').length;
-    const absent = todayAttendance.filter((a) => a.status === 'ABSENT').length;
-    const attendanceRate = totalStaff > 0 ? Math.round(((present + halfDay * 0.5) / totalStaff) * 100) : 0;
-
-    // KPIs
-    const totalTarget = orders.reduce((sum, o) => sum + (Number(o.target_quantity) || 0), 0);
-    const totalProduced = entries.reduce((sum, e) => sum + (Number(e.good_quantity) || 0), 0);
-    const totalInspected = inspections.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
-    const totalRejected = inspections.reduce((sum, i) => sum + (Number(i.rejected_quantity) || 0), 0);
-    const totalPassed = totalInspected - totalRejected;
-    const qualityRate = totalInspected > 0 ? Math.round((totalPassed / totalInspected) * 100) : 100;
-    const achievement = totalTarget > 0 ? Math.min(100, Math.round((totalProduced / totalTarget) * 100)) : 0;
-
-    // Line Progress
-    const lineOrderMap = {};
-    for (const ord of orders) {
-      if (ord.line_id) {
-        if (!lineOrderMap[ord.line_id]) lineOrderMap[ord.line_id] = [];
-        lineOrderMap[ord.line_id].push(ord.id || ord._id);
+    // Process machine stats
+    const machineStatusCounts = { RUNNING: 0, BREAKDOWN: 0, MAINTENANCE: 0, IDLE: 0 };
+    for (const m of machineStats) {
+      if (machineStatusCounts.hasOwnProperty(m.status)) {
+        machineStatusCounts[m.status] = m.count;
+      } else if (m.status === 'STOPPED') {
+        machineStatusCounts.IDLE += m.count;
       }
     }
-    const lineProgress = lines.map((l) => {
-      const lId = l.id || l._id;
-      const orderIds = lineOrderMap[lId] || [];
-      const lineProduced = entries
-        .filter((e) => orderIds.includes(e.production_order_id))
-        .reduce((sum, e) => sum + (Number(e.good_quantity) || 0), 0);
-      const pct = totalProduced > 0 ? Math.round((lineProduced / totalProduced) * 100) : 0;
-      return {
-        lineCode: l.code,
-        lineName: l.name,
-        produced: lineProduced,
-        pct,
-      };
-    });
+    const totalM = Object.values(machineStatusCounts).reduce((a, b) => a + b, 0);
+    const runningM = machineStatusCounts.RUNNING;
+    const breakdownM = machineStatusCounts.BREAKDOWN;
+    const maintenanceM = machineStatusCounts.MAINTENANCE;
+    const idleM = machineStatusCounts.IDLE;
 
-    // Actionable Tasks
-    const pendingInspections = inspections.filter((i) => i.status === 'PENDING').length;
-    const openMaintenance = maintenance.filter((m) => m.status === 'OPEN' || m.status === 'IN_PROGRESS').length;
-    const lowStockMaterials = materials.filter((m) => (m.current_stock || 0) <= (m.min_stock || 0)).length;
+    // Process attendance stats
+    const attendanceCounts = { PRESENT: 0, HALF_DAY: 0, LEAVE: 0, ABSENT: 0 };
+    for (const a of attendanceStats) {
+      if (attendanceCounts.hasOwnProperty(a.status)) {
+        attendanceCounts[a.status] = a.count;
+      }
+    }
+    const totalStaff = Object.values(attendanceCounts).reduce((a, b) => a + b, 0);
+    const present = attendanceCounts.PRESENT;
+    const halfDay = attendanceCounts.HALF_DAY;
+    const leave = attendanceCounts.LEAVE;
+    const absent = attendanceCounts.ABSENT;
+    const attendanceRate = totalStaff > 0 ? Math.round(((present + halfDay * 0.5) / totalStaff) * 100) : 0;
+
+    // Process production KPIs
+    const prodKpi = productionKpis[0] || { totalTarget: 0, orderIds: [], lineIds: [] };
+    const totalTarget = Math.round(prodKpi.totalTarget || 0);
+
+    // Get produced quantity from entries
+    const entriesResult = await database.collection('production_entries').aggregate([
+      { $match: { ...scope, production_order_id: { $in: prodKpi.orderIds }, ...buildDateFilter('entry_timestamp', rangeStart, rangeEnd) } },
+      { $group: { _id: null, totalProduced: { $sum: { $toDouble: '$good_quantity' } } } },
+    ]).toArray();
+    const totalProduced = Math.round(entriesResult[0]?.totalProduced || 0);
+
+    // Process quality stats
+    const quality = qualityStats[0] || { totalInspected: 0, totalRejected: 0, pendingCount: 0 };
+    const totalInspected = quality.totalInspected || 0;
+    const totalRejected = quality.totalRejected || 0;
+    const totalPassed = totalInspected - totalRejected;
+    const qualityRate = totalInspected > 0 ? Math.round((totalPassed / totalInspected) * 100) : 100;
+    const pendingInspections = quality.pendingCount || 0;
+
+    const achievement = totalTarget > 0 ? Math.min(100, Math.round((totalProduced / totalTarget) * 100)) : 0;
+
+    // Process line progress
+    const totalLineProduced = lineProgress.reduce((sum, l) => sum + (l.produced || 0), 0);
+    const processedLineProgress = lineProgress.map(l => ({
+      lineCode: l.lineCode,
+      lineName: l.lineName,
+      produced: l.produced || 0,
+      pct: totalLineProduced > 0 ? Math.round((l.produced / totalLineProduced) * 100) : 0,
+    }));
+
+    // Actionable tasks
+    const openMaintenance = maintenanceStats;
+    const lowStockMaterials = materialAlerts;
     const pendingTasksCount = pendingInspections + openMaintenance + breakdownM + lowStockMaterials;
 
-    // Monthly comparison data (last 6 months)
+    // Process monthly data
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const processedMonthlyData = monthlyData.map(m => ({
+      month: monthNames[m.month - 1],
+      year: m.year,
+      target: Math.round(m.target || 0),
+      produced: Math.round(m.produced || 0),
+      pct: m.target > 0 ? Math.min(100, Math.round((m.produced / m.target) * 100)) : achievement,
+    }));
+
+    // Ensure we have 6 months of data (fill gaps)
     const now = new Date();
-    const monthlyData = [];
+    const finalMonthlyData = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const mIdx = d.getMonth();
-      const mYear = d.getFullYear();
-      const mStart = new Date(mYear, mIdx, 1).getTime();
-      const mEnd = new Date(mYear, mIdx + 1, 0, 23, 59, 59).getTime();
-
-      const mTarget = orders
-        .filter((o) => (o.start_date || o.created_at) >= mStart && (o.start_date || o.created_at) <= mEnd)
-        .reduce((sum, o) => sum + (Number(o.target_quantity) || 0), 0);
-
-      const mProduced = entries
-        .filter((e) => (e.entry_timestamp || e.created_at) >= mStart && (e.entry_timestamp || e.created_at) <= mEnd)
-        .reduce((sum, e) => sum + (Number(e.good_quantity) || 0), 0);
-
-      monthlyData.push({
-        month: monthNames[mIdx],
-        year: mYear,
-        target: mTarget || Math.round(totalTarget / 6) || 0,
-        produced: mProduced || Math.round(totalProduced / 6) || 0,
-        pct: mTarget > 0 ? Math.min(100, Math.round((mProduced / mTarget) * 100)) : achievement,
-      });
+      const existing = processedMonthlyData.find(m => m.year === d.getFullYear() && m.month === monthNames[d.getMonth()]);
+      if (existing) {
+        finalMonthlyData.push(existing);
+      } else {
+        finalMonthlyData.push({
+          month: monthNames[d.getMonth()],
+          year: d.getFullYear(),
+          target: Math.round(totalTarget / 6) || 0,
+          produced: Math.round(totalProduced / 6) || 0,
+          pct: achievement,
+        });
+      }
     }
 
     res.json({
@@ -121,14 +265,9 @@ router.get('/dashboard/stats', async (req, res) => {
         achievement,
         qualityRate,
         machineAvailability: totalM > 0 ? Math.round((runningM / totalM) * 100) : 0,
-        downtimeHours: breakdownM * 2.5 + maintenanceM * 1.5,
-        machineStatusCounts: {
-          RUNNING: runningM,
-          BREAKDOWN: breakdownM,
-          MAINTENANCE: maintenanceM,
-          IDLE: idleM,
-        },
-        lineProgress,
+        downtimeHours: Math.round((breakdownM * 2.5 + maintenanceM * 1.5) * 10) / 10,
+        machineStatusCounts,
+        lineProgress: processedLineProgress,
       },
       machines: {
         running: runningM,
@@ -146,8 +285,18 @@ router.get('/dashboard/stats', async (req, res) => {
         rate: attendanceRate,
       },
       pendingTasksCount,
-      recentActivities: activities.map(normalizeDoc),
-      monthlyData,
+      recentActivities: recentActivities.map(a => {
+        const norm = normalizeDoc(a) || {};
+        return {
+          ...norm,
+          eventType: norm.event_type || norm.eventType || 'ACTIVITY',
+          event_type: norm.event_type || norm.eventType || 'ACTIVITY',
+          referenceType: norm.reference_type || norm.referenceType || null,
+          referenceId: norm.reference_id || norm.referenceId || null,
+          companyId: norm.company_id || norm.companyId || null,
+        };
+      }),
+      monthlyData: finalMonthlyData,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
