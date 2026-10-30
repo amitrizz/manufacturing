@@ -47,10 +47,7 @@ const rateLimitWindowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS) || (isDev ?
 const rateLimitMaxRequests = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || (isDev ? 1000 : 100); // 1000 dev, 100 prod
 app.use(createRateLimiter(rateLimitWindowMs, rateLimitMaxRequests));
 
-// Authentication (applies to all /api routes)
-app.use('/api', authenticate);
-
-// Tenant extraction (after auth)
+// Tenant extraction
 app.use(tenantMiddleware);
 
 // API Version Prefix
