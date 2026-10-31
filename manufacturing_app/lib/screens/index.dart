@@ -1,0 +1,23 @@
+// Screens barrel export
+export 'auth/login_screen.dart';
+export 'onboarding/onboarding_screen.dart';
+export 'dashboard/dashboard_screen.dart';
+export 'production/production_screen.dart';
+export 'production/production_orders_screen.dart';
+export 'production/production_plans_screen.dart';
+export 'production/production_floor_screen.dart';
+export 'inventory/inventory_screen.dart';
+export 'inventory/finished_goods_screen.dart';
+export 'machines/machines_screen.dart';
+export 'machines/machine_detail_screen.dart' hide DatePreset;
+export 'maintenance/maintenance_screen.dart';
+export 'quality/quality_screen.dart';
+export 'purchase/purchase_screen.dart';
+export 'dispatch/dispatch_screen.dart';
+export 'reports/reports_screen.dart';
+export 'staff/staff_screen.dart';
+export 'management/management_screen.dart';
+export 'products/products_screen.dart';
+export 'materials/product_bom_screen.dart';
+export 'tasks/tasks_screen.dart';
+export 'settings/settings_screen.dart';

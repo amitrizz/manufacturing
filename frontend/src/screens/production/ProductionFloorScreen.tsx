@@ -20,6 +20,7 @@ import { SearchField } from '../../components/common/SearchField';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
+import { useAuthStore } from '../../store/authStore';
 import {
   assignOperatorToMachine,
   createLine,
@@ -52,6 +53,8 @@ export function ProductionFloorScreen() {
   const navigation = useNavigation<NavigationProp<ParamListBase>>();
   const route = useRoute<any>();
   const isViewOnly = Boolean(route.params?.viewOnly);
+  const { company } = useAuthStore();
+  const companyId = company?.id;
 
   const [period, setPeriod] = useState<PeriodFilter>('today');
   const [search, setSearch] = useState('');
@@ -188,14 +191,20 @@ export function ProductionFloorScreen() {
       Alert.alert('Required Fields', 'Please enter both line code (e.g. LINE-E) and line name.');
       return;
     }
+    if (!companyId) {
+      Alert.alert('Error', 'No company selected. Please log in again.');
+      return;
+    }
     try {
       setIsSubmittingLine(true);
       await createLine({
         code: newLineCode.trim().toUpperCase(),
         name: newLineName.trim(),
+        company_id: companyId,
       });
       setAddLineModalVisible(false);
       Alert.alert('Success', `Production Line ${newLineCode.trim().toUpperCase()} created!`);
+      await new Promise((r) => setTimeout(r, 200));
       await loadData();
     } catch (e: unknown) {
       Alert.alert('Error', e instanceof Error ? e.message : 'Could not create line');
@@ -238,6 +247,7 @@ export function ProductionFloorScreen() {
         'Staff Assigned',
         `${assignOperatorName} assigned to ${assignMachineCode} for ${assignShift} shift.`,
       );
+      await new Promise((r) => setTimeout(r, 200));
       await loadData();
     } catch (e: unknown) {
       Alert.alert('Assignment Error', e instanceof Error ? e.message : 'Could not assign worker');

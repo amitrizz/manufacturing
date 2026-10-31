@@ -28,6 +28,7 @@ import {
 } from '../../api/repositories/machineRepository';
 import { listStaff } from '../../api/repositories/staffRepository';
 import { useLiveQuery } from '../../hooks/useLiveQuery';
+import { useAuthStore } from '../../store/authStore';
 import type { MachinesStackParamList } from '../../navigation/types';
 import { colors } from '../../theme';
 import type {
@@ -63,6 +64,8 @@ const SHIFT_OPTIONS = ['Morning', 'Evening', 'Night'];
 
 export function MachineListScreen({ navigation, route }: Props) {
   const isViewOnly = Boolean(route.params?.viewOnly);
+  const { company } = useAuthStore();
+  const companyId = company?.id;
   const [period, setPeriod] = useState<DatePreset>('today');
   const [viewMode, setViewMode] = useState<ViewMode>('machines');
   const [statusFilter, setStatusFilter] = useState<MachineStatus | 'ALL'>('ALL');
@@ -99,6 +102,7 @@ export function MachineListScreen({ navigation, route }: Props) {
     setRefreshing(true);
     try {
       const { start, end } = getRangeForPreset(period);
+      console.log('[DEBUG] loadData: period=', period, 'start=', start, 'end=', end, 'search=', search);
       const [mSummaries, oSummaries, staff, assignments, prodLines] = await Promise.all([
         listMachineOperatorSummaries({ startDate: start, endDate: end, search: search || undefined }),
         listOperatorMachineSummaries({ startDate: start, endDate: end, search: search || undefined }),
@@ -106,6 +110,10 @@ export function MachineListScreen({ navigation, route }: Props) {
         getActiveOperatorAssignments().catch(() => ({})),
         listLines().catch(() => []),
       ]);
+      console.log('[DEBUG] loadData: mSummaries count:', mSummaries.length);
+      if (mSummaries.length > 0) {
+        console.log('[DEBUG] loadData: first summary:', { machine_id: mSummaries[0].machine_id, machine_code: mSummaries[0].machine_code, machine_name: mSummaries[0].machine_name, machine_status: mSummaries[0].machine_status });
+      }
       setMachineSummaries(mSummaries);
       setOperatorSummaries(oSummaries);
       setStaffList(staff);
@@ -117,26 +125,37 @@ export function MachineListScreen({ navigation, route }: Props) {
     } finally {
       setRefreshing(false);
     }
-  }, [period, search, newLineId]);
+  }, [period, search]);
 
   const handleCreateMachine = async () => {
     if (!newCode.trim() || !newName.trim() || !newLineId) {
       Alert.alert('Required Fields', 'Please enter machine code, name, and select a production line.');
       return;
     }
+    if (!companyId) {
+      Alert.alert('Error', 'No company selected. Please log in again.');
+      return;
+    }
     try {
+      console.log('[DEBUG] handleCreateMachine: creating machine with', { code: newCode, name: newName, line_id: newLineId, machine_type: newType, company_id: companyId });
       await createMachine({
         code: newCode,
         name: newName,
         line_id: newLineId,
         machine_type: newType,
+        company_id: companyId,
       });
       setCreateModalVisible(false);
       setNewCode('');
       setNewName('');
       Alert.alert('Success', `Machine ${newCode.toUpperCase()} created successfully.`);
+      // Small delay to ensure backend write is visible to subsequent reads
+      await new Promise((r) => setTimeout(r, 200));
+      console.log('[DEBUG] handleCreateMachine: calling loadData...');
       await loadData();
+      console.log('[DEBUG] handleCreateMachine: loadData completed');
     } catch (e: unknown) {
+      console.error('[DEBUG] handleCreateMachine error:', e);
       Alert.alert('Error', e instanceof Error ? e.message : 'Could not create machine');
     }
   };
@@ -146,16 +165,22 @@ export function MachineListScreen({ navigation, route }: Props) {
       Alert.alert('Required Fields', 'Please enter line code and line name.');
       return;
     }
+    if (!companyId) {
+      Alert.alert('Error', 'No company selected. Please log in again.');
+      return;
+    }
     try {
       const createdId = await createLine({
         code: newLineCode.trim().toUpperCase(),
         name: newLineName.trim(),
+        company_id: companyId,
       });
       setCreateLineModalVisible(false);
       setNewLineCode('');
       setNewLineName('');
       setNewLineId(createdId);
       Alert.alert('Success', `Production Line ${newLineCode.trim().toUpperCase()} created!`);
+      await new Promise((r) => setTimeout(r, 200));
       await loadData();
     } catch (e: unknown) {
       Alert.alert('Error', e instanceof Error ? e.message : 'Could not create line');
@@ -193,6 +218,7 @@ export function MachineListScreen({ navigation, route }: Props) {
       );
       setAssignModalVisible(false);
       Alert.alert('Success', `Assigned ${selectedOperator} to ${selectedMachineCode} on ${selectedShift} shift.`);
+      await new Promise((r) => setTimeout(r, 200));
       await loadData();
     } catch (e: unknown) {
       Alert.alert('Error', e instanceof Error ? e.message : 'Could not assign operator');

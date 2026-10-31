@@ -18,6 +18,42 @@ app.use(express.json({ limit: '10mb' }));
 let client;
 let db;
 
+// Allowlist for universal CRUD to prevent NoSQL injection
+const ALLOWED_COLLECTIONS = new Set([
+  'companies',
+  'company_roles',
+  'staff',
+  'staff_attendance',
+  'factories',
+  'production_lines',
+  'machines',
+  'machine_downtime',
+  'materials',
+  'product_categories',
+  'products',
+  'bom',
+  'bom_items',
+  'production_plans',
+  'production_orders',
+  'production_entries',
+  'quality_inspections',
+  'quality_results',
+  'rework_orders',
+  'maintenance_orders',
+  'maintenance_history',
+  'finished_goods',
+  'dispatch_orders',
+  'suppliers',
+  'customers',
+  'purchase_requests',
+  'purchase_orders',
+  'purchase_order_items',
+  'grn_receipts',
+  'stock_transactions',
+  'activity_history',
+  'notifications',
+]);
+
 async function connectToMongo() {
   if (!db) {
     client = new MongoClient(MONGODB_URI);
@@ -26,6 +62,20 @@ async function connectToMongo() {
     console.log(`✅ MongoDB connected successfully to database: ${DB_NAME}`);
   }
   return db;
+}
+
+// Helper to run operations within a MongoDB transaction
+async function withTransaction(fn) {
+  const database = await connectToMongo();
+  const session = client.startSession();
+  try {
+    const result = await session.withTransaction(async () => {
+      return await fn(database, session);
+    });
+    return result;
+  } finally {
+    await session.endSession();
+  }
 }
 
 // Health check
@@ -55,9 +105,17 @@ function normalizeDoc(doc) {
 }
 
 // ----------------------------------------------------
-// Universal Collection CRUD API
+// Universal Collection CRUD API (with allowlist validation)
 // ----------------------------------------------------
-app.get('/api/collections/:name', async (req, res) => {
+function validateCollection(req, res, next) {
+  const name = req.params.name;
+  if (!ALLOWED_COLLECTIONS.has(name)) {
+    return res.status(400).json({ error: `Collection '${name}' not allowed` });
+  }
+  next();
+}
+
+app.get('/api/collections/:name', validateCollection, async (req, res) => {
   try {
     const database = await connectToMongo();
     const col = database.collection(req.params.name);
@@ -83,7 +141,7 @@ app.get('/api/collections/:name', async (req, res) => {
   }
 });
 
-app.get('/api/collections/:name/:id', async (req, res) => {
+app.get('/api/collections/:name/:id', validateCollection, async (req, res) => {
   try {
     const database = await connectToMongo();
     const col = database.collection(req.params.name);
@@ -104,7 +162,7 @@ app.get('/api/collections/:name/:id', async (req, res) => {
   }
 });
 
-app.post('/api/collections/:name', async (req, res) => {
+app.post('/api/collections/:name', validateCollection, async (req, res) => {
   try {
     const database = await connectToMongo();
     const col = database.collection(req.params.name);
@@ -127,7 +185,7 @@ app.post('/api/collections/:name', async (req, res) => {
   }
 });
 
-app.put('/api/collections/:name/:id', async (req, res) => {
+app.put('/api/collections/:name/:id', validateCollection, async (req, res) => {
   try {
     const database = await connectToMongo();
     const col = database.collection(req.params.name);
@@ -154,7 +212,7 @@ app.put('/api/collections/:name/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/collections/:name/:id', async (req, res) => {
+app.delete('/api/collections/:name/:id', validateCollection, async (req, res) => {
   try {
     const database = await connectToMongo();
     const col = database.collection(req.params.name);
@@ -240,98 +298,104 @@ app.get('/api/purchase/grn-receipts', async (req, res) => {
 
 app.post('/api/purchase/receive-grn', async (req, res) => {
   try {
-    const database = await connectToMongo();
-    const grnCol = database.collection('grn_receipts');
-    const poCol = database.collection('purchase_orders');
-    const poiCol = database.collection('purchase_order_items');
-    const matCol = database.collection('materials');
-    const txCol = database.collection('stock_transactions');
-    const actCol = database.collection('activity_history');
-
     const { po_id, supplier_id, invoice_number, notes, received_items = [] } = req.body;
     const now = Date.now();
 
-    const count = await grnCol.countDocuments({});
-    const seq = (count + 1).toString().padStart(4, '0');
-    const grnNumber = `GRN-${seq}`;
-    const grnId = `grn-${now}-${Math.random().toString(36).substr(2, 6)}`;
+    const result = await withTransaction(async (database, session) => {
+      const grnCol = database.collection('grn_receipts');
+      const poCol = database.collection('purchase_orders');
+      const poiCol = database.collection('purchase_order_items');
+      const matCol = database.collection('materials');
+      const txCol = database.collection('stock_transactions');
+      const actCol = database.collection('activity_history');
 
-    // 1. Insert GRN record
-    const grnDoc = {
-      _id: grnId,
-      id: grnId,
-      grn_number: grnNumber,
-      po_id: po_id || null,
-      supplier_id: supplier_id || null,
-      received_date: now,
-      invoice_number: invoice_number?.trim() || null,
-      notes: notes?.trim() || null,
-      created_at: now,
-      updated_at: now,
-    };
-    await grnCol.insertOne(grnDoc);
+      const count = await grnCol.countDocuments({}, { session });
+      const seq = (count + 1).toString().padStart(4, '0');
+      const grnNumber = `GRN-${seq}`;
+      const grnId = `grn-${now}-${Math.random().toString(36).substr(2, 6)}`;
 
-    // 2. Process received items
-    for (const item of received_items) {
-      const qty = Number(item.received_qty);
-      if (qty <= 0) continue;
+      // 1. Insert GRN record
+      const grnDoc = {
+        _id: grnId,
+        id: grnId,
+        grn_number: grnNumber,
+        po_id: po_id || null,
+        supplier_id: supplier_id || null,
+        received_date: now,
+        invoice_number: invoice_number?.trim() || null,
+        notes: notes?.trim() || null,
+        created_at: now,
+        updated_at: now,
+      };
+      await grnCol.insertOne(grnDoc, { session });
 
-      // Update material stock
-      await matCol.updateOne(
-        { $or: [{ id: item.material_id }, { _id: item.material_id }] },
-        { $inc: { current_stock: qty }, $set: { updated_at: now } }
-      );
+      // 2. Process received items
+      for (const item of received_items) {
+        const qty = Number(item.received_qty);
+        if (qty <= 0) continue;
 
-      // If linked to PO, update PO item
-      if (po_id) {
-        await poiCol.updateOne(
-          { po_id: po_id, material_id: item.material_id },
-          { $inc: { received_quantity: qty } }
+        // Update material stock atomically
+        await matCol.updateOne(
+          { $or: [{ id: item.material_id }, { _id: item.material_id }] },
+          { $inc: { current_stock: qty }, $set: { updated_at: now } },
+          { session }
         );
+
+        // If linked to PO, update PO item
+        if (po_id) {
+          await poiCol.updateOne(
+            { po_id: po_id, material_id: item.material_id },
+            { $inc: { received_quantity: qty } },
+            { session }
+          );
+        }
+
+        // Add to stock_transactions
+        const txId = `tx-${now}-${Math.random().toString(36).substr(2, 6)}`;
+        await txCol.insertOne({
+          _id: txId,
+          id: txId,
+          material_id: item.material_id,
+          transaction_type: 'IN',
+          category: 'RAW_MATERIAL',
+          quantity: qty,
+          reference_type: 'GRN',
+          reference_id: grnId,
+          notes: `Received via ${grnNumber}`,
+          created_at: now,
+        }, { session });
       }
 
-      // Add to stock_transactions
-      const txId = `tx-${now}-${Math.random().toString(36).substr(2, 6)}`;
-      await txCol.insertOne({
-        _id: txId,
-        id: txId,
-        material_id: item.material_id,
-        transaction_type: 'IN',
-        category: 'RAW_MATERIAL',
-        quantity: qty,
+      // 3. Update PO status if linked
+      if (po_id) {
+        const poItems = await poiCol.find({ po_id: po_id }, { session }).toArray();
+        if (poItems.length > 0) {
+          const allReceived = poItems.every((it) => (it.received_quantity || 0) >= it.quantity);
+          const newStatus = allReceived ? 'RECEIVED' : 'PARTIALLY_RECEIVED';
+          await poCol.updateOne(
+            { $or: [{ id: po_id }, { _id: po_id }] },
+            { $set: { status: newStatus, updated_at: now } },
+            { session }
+          );
+        }
+      }
+
+      // 4. Log activity
+      await actCol.insertOne({
+        _id: `act-${now}-${Math.random().toString(36).substr(2, 6)}`,
+        id: `act-${now}`,
+        event_type: 'GRN_RECEIVED',
+        title: `${grnNumber} processed`,
+        description: po_id ? 'Stock updated from PO receipt' : 'Direct material inward received',
         reference_type: 'GRN',
         reference_id: grnId,
-        notes: `Received via ${grnNumber}`,
         created_at: now,
-      });
-    }
+      }, { session });
 
-    // 3. Update PO status if linked
-    if (po_id) {
-      const poItems = await poiCol.find({ po_id: po_id }).toArray();
-      if (poItems.length > 0) {
-        const allReceived = poItems.every((it) => (it.received_quantity || 0) >= it.quantity);
-        const newStatus = allReceived ? 'RECEIVED' : 'PARTIALLY_RECEIVED';
-        await poCol.updateOne(
-          { $or: [{ id: po_id }, { _id: po_id }] },
-          { $set: { status: newStatus, updated_at: now } }
-        );
-      }
-    }
-
-    // 4. Log activity
-    await actCol.insertOne({
-      _id: `act-${now}-${Math.random().toString(36).substr(2, 6)}`,
-      id: `act-${now}`,
-      event_type: 'GRN_RECEIVED',
-      title: `${grnNumber} processed`,
-      description: po_id ? 'Stock updated from PO receipt' : 'Direct material inward received',
-      reference_type: 'GRN',
-      reference_id: grnId,
-      created_at: now,
+      return { success: true, grnId, grnNumber };
     });
 
-    res.status(201).json({ success: true, grnId, grnNumber });
+    res.status(201).json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -339,66 +403,76 @@ app.post('/api/purchase/receive-grn', async (req, res) => {
 
 app.delete('/api/purchase/delete-grn/:id', async (req, res) => {
   try {
-    const database = await connectToMongo();
-    const grnCol = database.collection('grn_receipts');
-    const poCol = database.collection('purchase_orders');
-    const poiCol = database.collection('purchase_order_items');
-    const matCol = database.collection('materials');
-    const txCol = database.collection('stock_transactions');
-    const actCol = database.collection('activity_history');
-
     const grnId = req.params.id;
-    const grn = await grnCol.findOne({ $or: [{ id: grnId }, { _id: grnId }] });
-    if (!grn) {
-      return res.status(404).json({ error: 'GRN not found' });
-    }
-
-    const txs = await txCol.find({ reference_type: 'GRN', reference_id: grnId }).toArray();
     const now = Date.now();
 
-    for (const tx of txs) {
-      if (tx.material_id) {
-        await matCol.updateOne(
-          { $or: [{ id: tx.material_id }, { _id: tx.material_id }] },
-          { $inc: { current_stock: -tx.quantity }, $set: { updated_at: now } }
-        );
+    const result = await withTransaction(async (database, session) => {
+      const grnCol = database.collection('grn_receipts');
+      const poCol = database.collection('purchase_orders');
+      const poiCol = database.collection('purchase_order_items');
+      const matCol = database.collection('materials');
+      const txCol = database.collection('stock_transactions');
+      const actCol = database.collection('activity_history');
 
-        if (grn.po_id) {
-          await poiCol.updateOne(
-            { po_id: grn.po_id, material_id: tx.material_id },
-            { $inc: { received_quantity: -tx.quantity } }
+      const grn = await grnCol.findOne({ $or: [{ id: grnId }, { _id: grnId }] }, { session });
+      if (!grn) {
+        throw new Error('GRN not found');
+      }
+
+      const txs = await txCol.find({ reference_type: 'GRN', reference_id: grnId }, { session }).toArray();
+
+      for (const tx of txs) {
+        if (tx.material_id) {
+          await matCol.updateOne(
+            { $or: [{ id: tx.material_id }, { _id: tx.material_id }] },
+            { $inc: { current_stock: -tx.quantity }, $set: { updated_at: now } },
+            { session }
           );
+
+          if (grn.po_id) {
+            await poiCol.updateOne(
+              { po_id: grn.po_id, material_id: tx.material_id },
+              { $inc: { received_quantity: -tx.quantity } },
+              { session }
+            );
+          }
         }
       }
-    }
 
-    if (grn.po_id) {
-      const poItems = await poiCol.find({ po_id: grn.po_id }).toArray();
-      const anyReceived = poItems.some((it) => (it.received_quantity || 0) > 0);
-      const allReceived = poItems.length > 0 && poItems.every((it) => (it.received_quantity || 0) >= it.quantity);
-      const newStatus = allReceived ? 'RECEIVED' : anyReceived ? 'PARTIALLY_RECEIVED' : 'ISSUED';
-      await poCol.updateOne(
-        { $or: [{ id: grn.po_id }, { _id: grn.po_id }] },
-        { $set: { status: newStatus, updated_at: now } }
-      );
-    }
+      if (grn.po_id) {
+        const poItems = await poiCol.find({ po_id: grn.po_id }, { session }).toArray();
+        const anyReceived = poItems.some((it) => (it.received_quantity || 0) > 0);
+        const allReceived = poItems.length > 0 && poItems.every((it) => (it.received_quantity || 0) >= it.quantity);
+        const newStatus = allReceived ? 'RECEIVED' : anyReceived ? 'PARTIALLY_RECEIVED' : 'ISSUED';
+        await poCol.updateOne(
+          { $or: [{ id: grn.po_id }, { _id: grn.po_id }] },
+          { $set: { status: newStatus, updated_at: now } },
+          { session }
+        );
+      }
 
-    await txCol.deleteMany({ reference_type: 'GRN', reference_id: grnId });
-    await grnCol.deleteOne({ $or: [{ id: grnId }, { _id: grnId }] });
+      await txCol.deleteMany({ reference_type: 'GRN', reference_id: grnId }, { session });
+      await grnCol.deleteOne({ $or: [{ id: grnId }, { _id: grnId }] }, { session });
 
-    await actCol.insertOne({
-      _id: `act-${now}-${Math.random().toString(36).substr(2, 6)}`,
-      id: `act-${now}`,
-      event_type: 'GRN_DELETED',
-      title: 'GRN reversed',
-      description: 'Goods receipt deleted and stock reversed',
-      reference_type: 'GRN',
-      reference_id: grnId,
-      created_at: now,
+      await actCol.insertOne({
+        _id: `act-${now}-${Math.random().toString(36).substr(2, 6)}`,
+        id: `act-${now}`,
+        event_type: 'GRN_DELETED',
+        title: 'GRN reversed',
+        description: 'Goods receipt deleted and stock reversed',
+        reference_type: 'GRN',
+        reference_id: grnId,
+        created_at: now,
+      }, { session });
+
+      return { success: true, deletedGrn: grnId };
     });
 
-    res.json({ success: true, deletedGrn: grnId });
+    res.json(result);
   } catch (err) {
+    if (err.message === 'GRN not found') {
+      return res.status(404).json({ error: err.message });
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -460,9 +534,9 @@ app.post('/api/database/reset', async (req, res) => {
     for (const name of ALL_COLLECTIONS) {
       await database.collection(name).deleteMany({});
     }
-    // Import using migration logic
-    const { execSync } = await import('child_process');
-    execSync('node scripts/migrate-to-mongodb.mjs', { stdio: 'inherit' });
+    // Import using migration logic (imported directly, no execSync)
+    const { runMigration } = await import('../scripts/migrate-to-mongodb.mjs');
+    await runMigration(database);
     res.json({ success: true, message: 'MongoDB demo data re-seeded successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });

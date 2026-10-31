@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -43,6 +43,11 @@ export function LoginScreen() {
   const loginStaff = useAuthStore((s) => s.loginStaff);
   const loginCompanyAdmin = useAuthStore((s) => s.loginCompanyAdmin);
   const registerCompany = useAuthStore((s) => s.registerCompany);
+  const clearApiUrl = useCallback(async () => {
+    const { clearSavedApiUrl } = await import('../../api/client');
+    await clearSavedApiUrl();
+    Alert.alert('Cleared', 'Saved API URL cleared. App will use local backend.');
+  }, []);
 
   const handleStaffLogin = async () => {
     if (!staffCompanyCode.trim() || !staffEmpId.trim() || !staffPin.trim()) {
@@ -313,6 +318,16 @@ export function LoginScreen() {
           )}
 
           {loading && <ActivityIndicator color={colors.primary} style={{ marginTop: 12 }} />}
+
+          {/* Debug: Clear saved API URL */}
+          <Pressable
+            style={styles.debugBtn}
+            onPress={clearApiUrl}
+          >
+            <Ionicons name="trash-bin-outline" size={14} color="#EF4444" />
+            <Text style={styles.debugBtnText}>Clear Saved API URL (Fix 502)</Text>
+          </Pressable>
+
         </Card>
 
         {/* Demo Fast Logins Section */}
@@ -494,5 +509,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#0A1E38',
+  },
+  debugBtn: {
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  debugBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#EF4444',
   },
 });

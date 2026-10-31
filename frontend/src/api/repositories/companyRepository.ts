@@ -1,4 +1,4 @@
-import { mongoApi } from '../client';
+import { mongoApi, apiFetch } from '../client';
 import type { CompanyRow } from '../../types/database';
 import { newId } from '../../utils/id';
 
@@ -53,8 +53,6 @@ export async function getCompanyByEmail(email: string): Promise<CompanyRow | nul
 }
 
 export async function createCompany(input: CreateCompanyInput): Promise<CompanyRow> {
-  const id = newId();
-  const now = Date.now();
   const code = input.company_code.trim().toUpperCase();
   const email = input.admin_email.trim().toLowerCase();
   const name = input.name.trim();
@@ -70,22 +68,18 @@ export async function createCompany(input: CreateCompanyInput): Promise<CompanyR
     throw new Error(`Admin email "${email}" is already registered. Please sign in or use another email.`);
   }
 
-  const doc: CompanyRow = {
-    id,
-    company_code: code,
-    name,
-    admin_email: email,
-    admin_password: password,
-    created_at: now,
-    updated_at: now,
-  };
-
-  await mongoApi.insert('companies', {
-    ...doc,
-    _id: id,
+  // Use dedicated companies endpoint (doesn't require companyId)
+  const created = await apiFetch<CompanyRow>('/api/v1/companies', {
+    method: 'POST',
+    body: JSON.stringify({
+      name,
+      code,
+      admin_email: email,
+      admin_password: password,
+    }),
   });
 
-  return doc;
+  return created;
 }
 
 export async function verifyCompanyAdmin(
@@ -95,18 +89,18 @@ export async function verifyCompanyAdmin(
   const cleanInput = emailOrCode.trim();
   const cleanPass = password.trim();
 
+  // Use dedicated verify-admin endpoint
   try {
-    const all = await listCompanies();
-    const found = all.find(
-      (c) =>
-        ((c.admin_email || (c as any).email)?.toLowerCase() === cleanInput.toLowerCase() ||
-          (c.company_code || (c as any).code)?.toUpperCase() === cleanInput.toUpperCase()) &&
-        c.admin_password === cleanPass,
-    );
-    if (found) return found;
+    const result = await apiFetch<{ id: string; name: string; code: string; admin_email: string }>('/api/v1/companies/verify-admin', {
+      method: 'POST',
+      body: JSON.stringify({
+        emailOrCode: cleanInput,
+        password: cleanPass,
+      }),
+    });
+    return result as CompanyRow;
   } catch (err) {
     console.warn('verifyCompanyAdmin error:', err);
+    return null;
   }
-
-  return null;
 }

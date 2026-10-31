@@ -126,6 +126,8 @@ export type CreateLineInput = {
 export async function createLine(input: CreateLineInput): Promise<string> {
   const id = newId();
   const factoryId = input.factory_id || 'fac-01';
+  const now = Date.now();
+  
   await mongoApi.insert('production_lines', {
     _id: id,
     id,
@@ -133,8 +135,8 @@ export async function createLine(input: CreateLineInput): Promise<string> {
     code: input.code.trim().toUpperCase(),
     name: input.name.trim(),
     ...(input.company_id ? { company_id: input.company_id } : {}),
-    created_at: Date.now(),
-    updated_at: Date.now(),
+    created_at: now,
+    updated_at: now,
   });
   notifyDataChanged();
   return id;
@@ -170,12 +172,17 @@ export async function listMachineOperatorSummaries(
   filters: OperatorPeriodFilter = {},
 ): Promise<MachineOperatorSummary[]> {
   try {
+    console.log('[DEBUG] listMachineOperatorSummaries called with filters:', filters);
     const [machines, entries, orders, products] = await Promise.all([
       listMachines({ search: filters.search }),
       mongoApi.getCollection<any>('production_entries').catch(() => []),
       mongoApi.getCollection<any>('production_orders').catch(() => []),
       mongoApi.getCollection<any>('products').catch(() => []),
     ]);
+    console.log('[DEBUG] listMachineOperatorSummaries: machines count:', machines.length, 'entries count:', entries.length);
+    if (machines.length > 0) {
+      console.log('[DEBUG] First machine:', { id: machines[0].id, code: machines[0].code, name: machines[0].name, status: machines[0].status, line_id: machines[0].line_id });
+    }
 
     const orderMap = new Map(orders.map((o: any) => [o.id || o._id, o]));
     const prodMap = new Map(products.map((p: any) => [p.id || p._id, p]));
@@ -523,7 +530,7 @@ export async function getActiveOperatorAssignments(
   try {
     const [entries, machines, lines] = await Promise.all([
       mongoApi.getCollection<any>('production_entries'),
-      mongoApi.getCollection<any>('machines'),
+      listMachines(),
       mongoApi.getCollection<any>('production_lines'),
     ]);
 
@@ -619,6 +626,8 @@ export async function createMachine(input: CreateMachineInput): Promise<string> 
   const status = input.status || 'IDLE';
   const type = input.machine_type?.trim() || 'General';
 
+  console.log('[DEBUG] createMachine input:', { ...input, line_id: input.line_id });
+
   await mongoApi.insert('machines', {
     _id: id,
     id,
@@ -636,6 +645,7 @@ export async function createMachine(input: CreateMachineInput): Promise<string> 
     updated_at: now,
   });
 
+  console.log('[DEBUG] createMachine created machine with id:', id);
   notifyDataChanged();
   return id;
 }
