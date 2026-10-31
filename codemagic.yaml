@@ -27,9 +27,15 @@ workflows:
       - name: Build Android Release APK
         script: |
           flutter build apk --release
+      - name: Copy APK to Export Directory
+        script: |
+          mkdir -p $CM_EXPORT_DIR
+          cp build/app/outputs/flutter-apk/app-release.apk $CM_EXPORT_DIR/manufacturing-app-release.apk
+          echo "APK successfully copied to $CM_EXPORT_DIR"
+          ls -la $CM_EXPORT_DIR
     artifacts:
-      - build/**/outputs/**/*.apk
-      - manufacturing_app/build/**/outputs/**/*.apk
+      - $CM_EXPORT_DIR/*.apk
+      - manufacturing_app/build/app/outputs/flutter-apk/*.apk
     publishing:
       email:
         recipients:
@@ -64,23 +70,28 @@ workflows:
       - name: Install CocoaPods
         script: |
           find . -name "Podfile" -execdir pod install \;
-      - name: Build iOS IPA without signing
+      - name: Build iOS without code signing
         script: |
-          flutter build ipa --release --no-codesign || flutter build ios --release --no-codesign
-      - name: Package Payload if fallback needed
+          flutter build ios --release --no-codesign
+      - name: Package iOS App and IPA into Export Directory
         script: |
-          if [ -d "build/ios/iphoneos/Runner.app" ] && [ ! -f "build/ios/ipa/*.ipa" ]; then
-            mkdir -p build/ios/iphoneos/Payload
-            cp -r build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/
-            cd build/ios/iphoneos && zip -r manufacturing-app-unsigned.ipa Payload
+          mkdir -p $CM_EXPORT_DIR
+          if [ -d "build/ios/iphoneos/Runner.app" ]; then
+            cd build/ios/iphoneos
+            mkdir -p Payload
+            cp -r Runner.app Payload/
+            zip -r "$CM_EXPORT_DIR/manufacturing-app-unsigned.ipa" Payload
+            zip -r "$CM_EXPORT_DIR/Runner-app.zip" Runner.app
+            echo "Exported IPA and Runner-app.zip to $CM_EXPORT_DIR"
+            ls -la $CM_EXPORT_DIR
+          else
+            echo "Runner.app not found in build/ios/iphoneos"
+            find build -maxdepth 4
           fi
     artifacts:
-      - build/ios/ipa/*.ipa
-      - manufacturing_app/build/ios/ipa/*.ipa
-      - build/ios/iphoneos/*.ipa
+      - $CM_EXPORT_DIR/*.ipa
+      - $CM_EXPORT_DIR/*.zip
       - manufacturing_app/build/ios/iphoneos/*.ipa
-      - build/ios/iphoneos/**/*.app
-      - manufacturing_app/build/ios/iphoneos/**/*.app
     publishing:
       email:
         recipients:
@@ -88,4 +99,3 @@ workflows:
         notify:
           success: true
           failure: true
-
