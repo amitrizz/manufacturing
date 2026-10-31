@@ -1,0 +1,90 @@
+workflows:
+  android-workflow:
+    name: Android Release APK
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    working_directory: manufacturing_app
+    environment:
+      flutter: stable
+      java: 17
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: master
+          include: true
+          source: true
+        - pattern: main
+          include: true
+          source: true
+    scripts:
+      - name: Set up local.properties
+        script: |
+          echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
+      - name: Get Flutter dependencies
+        script: |
+          flutter pub get
+      - name: Build Android Release APK
+        script: |
+          flutter build apk --release
+    artifacts:
+      - build/**/outputs/**/*.apk
+      - manufacturing_app/build/**/outputs/**/*.apk
+    publishing:
+      email:
+        recipients:
+          - amitsagar121001@gmail.com
+        notify:
+          on_success: true
+          on_failure: true
+
+  ios-workflow:
+    name: iOS Release Build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    working_directory: manufacturing_app
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: master
+          include: true
+          source: true
+        - pattern: main
+          include: true
+          source: true
+    scripts:
+      - name: Get Flutter dependencies
+        script: |
+          flutter pub get
+      - name: Install CocoaPods
+        script: |
+          find . -name "Podfile" -execdir pod install \;
+      - name: Build iOS IPA without signing
+        script: |
+          flutter build ipa --release --no-codesign || flutter build ios --release --no-codesign
+      - name: Package Payload if fallback needed
+        script: |
+          if [ -d "build/ios/iphoneos/Runner.app" ] && [ ! -f "build/ios/ipa/*.ipa" ]; then
+            mkdir -p build/ios/iphoneos/Payload
+            cp -r build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/
+            cd build/ios/iphoneos && zip -r manufacturing-app-unsigned.ipa Payload
+          fi
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - manufacturing_app/build/ios/ipa/*.ipa
+      - build/ios/iphoneos/*.ipa
+      - manufacturing_app/build/ios/iphoneos/*.ipa
+      - build/ios/iphoneos/**/*.app
+      - manufacturing_app/build/ios/iphoneos/**/*.app
+    publishing:
+      email:
+        recipients:
+          - amitsagar121001@gmail.com
+        notify:
+          on_success: true
+          on_failure: true
