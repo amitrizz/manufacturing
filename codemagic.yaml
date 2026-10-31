@@ -35,8 +35,8 @@ workflows:
         recipients:
           - amitsagar121001@gmail.com
         notify:
-          on_success: true
-          on_failure: true
+          success: true
+          failure: true
 
   ios-workflow:
     name: iOS Release Build
@@ -86,5 +86,6 @@ workflows:
         recipients:
           - amitsagar121001@gmail.com
         notify:
-          on_success: true
-          on_failure: true
+          success: true
+          failure: true
+
