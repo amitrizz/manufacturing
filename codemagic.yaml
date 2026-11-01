@@ -70,23 +70,24 @@ workflows:
       - name: Install CocoaPods
         script: |
           find . -name "Podfile" -execdir pod install \;
-      - name: Build iOS without code signing
+      - name: Build iOS IPA without signing
         script: |
-          flutter build ios --release --no-codesign
-      - name: Package iOS App and IPA into Export Directory
+          flutter build ipa --release --no-codesign
+      - name: Copy IPA to Export Directory
         script: |
           mkdir -p $CM_EXPORT_DIR
+          cp build/ios/ipa/*.ipa $CM_EXPORT_DIR/manufacturing-app-unsigned.ipa
+          echo "IPA copied to $CM_EXPORT_DIR"
+          ls -la $CM_EXPORT_DIR
+      - name: Zip Runner.app as fallback (optional)
+        script: |
           if [ -d "build/ios/iphoneos/Runner.app" ]; then
             cd build/ios/iphoneos
-            mkdir -p Payload
-            cp -r Runner.app Payload/
-            zip -r "$CM_EXPORT_DIR/manufacturing-app-unsigned.ipa" Payload
             zip -r "$CM_EXPORT_DIR/Runner-app.zip" Runner.app
-            echo "Exported IPA and Runner-app.zip to $CM_EXPORT_DIR"
+            echo "Runner-app zipped to $CM_EXPORT_DIR"
             ls -la $CM_EXPORT_DIR
           else
-            echo "Runner.app not found in build/ios/iphoneos"
-            find build -maxdepth 4
+            echo "Runner.app not found, cannot zip"
           fi
     artifacts:
       - $CM_EXPORT_DIR/*.ipa
