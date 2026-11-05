@@ -73,44 +73,71 @@ workflows:
       - name: Build iOS app (unsigned)
         script: |
           flutter build ios --release --no-codesign
-      - name: Debug - show build output
+          echo "Flutter build ios finished with exit code $?"
+      - name: Find and Package iOS App
         script: |
-          echo "=== Listing build/ios/iphoneos ==="
-          ls -la build/ios/iphoneos/ || echo "iphoneos dir not found"
-          echo "=== Looking for Runner.app ==="
-          find build -name "Runner.app" -type d 2>/dev/null || echo "Runner.app not found anywhere"
-      - name: Package Runner.app into IPA and ZIP
-        script: |
-          set -e
           mkdir -p $CM_EXPORT_DIR
 
-          # Find Runner.app wherever it was built
-          RUNNER_APP=$(find build -name "Runner.app" -type d | head -1)
+          echo "=== Full build directory tree ==="
+          find build -name "*.app" -type d 2>/dev/null || true
+          echo ""
+          echo "=== Checking known paths ==="
+
+          # Try all known paths where Runner.app could be
+          RUNNER_APP=""
+          for path in \
+            "build/ios/iphoneos/Runner.app" \
+            "build/ios/Release-iphoneos/Runner.app" \
+            "build/ios/Debug-iphoneos/Runner.app" \
+            "build/ios/Profile-iphoneos/Runner.app"; do
+            if [ -d "$path" ]; then
+              RUNNER_APP="$path"
+              echo "FOUND Runner.app at: $path"
+              break
+            else
+              echo "NOT at: $path"
+            fi
+          done
+
+          # Fallback: search everywhere
+          if [ -z "$RUNNER_APP" ]; then
+            echo "Searching entire build/ directory..."
+            RUNNER_APP=$(find build -name "Runner.app" -type d 2>/dev/null | head -1)
+          fi
 
           if [ -z "$RUNNER_APP" ]; then
-            echo "ERROR: Runner.app not found anywhere in build/"
-            find build -maxdepth 5 -type d
+            echo ""
+            echo "========================================="
+            echo "ERROR: Runner.app not found anywhere!"
+            echo "Full build tree for debugging:"
+            echo "========================================="
+            find build -maxdepth 6 -type d 2>/dev/null || true
+            echo ""
+            echo "All files in build/ios/:"
+            find build/ios -maxdepth 4 2>/dev/null || true
             exit 1
           fi
 
-          echo "Found Runner.app at: $RUNNER_APP"
+          echo ""
+          echo "Using Runner.app from: $RUNNER_APP"
+          echo "Runner.app size:"
+          du -sh "$RUNNER_APP"
 
-          # Create proper IPA structure: Payload/Runner.app
-          TEMP_DIR=$(mktemp -d)
-          mkdir -p "$TEMP_DIR/Payload"
-          cp -r "$RUNNER_APP" "$TEMP_DIR/Payload/Runner.app"
-
-          # Create unsigned IPA (proper format with Payload/ folder)
-          cd "$TEMP_DIR"
+          # Create proper IPA with Payload/ structure
+          PAYLOAD_DIR=$(mktemp -d)/Payload
+          mkdir -p "$PAYLOAD_DIR"
+          cp -r "$RUNNER_APP" "$PAYLOAD_DIR/Runner.app"
+          cd "$(dirname "$PAYLOAD_DIR")"
           zip -r "$CM_EXPORT_DIR/manufacturing-app.ipa" Payload
           echo "Created manufacturing-app.ipa"
 
-          # Also zip the raw .app bundle
+          # Also zip the raw .app
           cd "$(dirname "$RUNNER_APP")"
-          zip -r "$CM_EXPORT_DIR/Runner-app.zip" Runner.app
+          zip -r "$CM_EXPORT_DIR/Runner-app.zip" "$(basename "$RUNNER_APP")"
           echo "Created Runner-app.zip"
 
-          echo "=== Export Directory Contents ==="
+          echo ""
+          echo "=== Final Export Directory ==="
           ls -la $CM_EXPORT_DIR
     artifacts:
       - $CM_EXPORT_DIR/*.ipa
