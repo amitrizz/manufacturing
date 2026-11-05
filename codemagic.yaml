@@ -70,29 +70,51 @@ workflows:
       - name: Install CocoaPods
         script: |
           find . -name "Podfile" -execdir pod install \;
-      - name: Build iOS IPA without signing
+      - name: Build iOS app (unsigned)
         script: |
-          flutter build ipa --release --no-codesign
-      - name: Copy IPA to Export Directory
+          flutter build ios --release --no-codesign
+      - name: Debug - show build output
         script: |
+          echo "=== Listing build/ios/iphoneos ==="
+          ls -la build/ios/iphoneos/ || echo "iphoneos dir not found"
+          echo "=== Looking for Runner.app ==="
+          find build -name "Runner.app" -type d 2>/dev/null || echo "Runner.app not found anywhere"
+      - name: Package Runner.app into IPA and ZIP
+        script: |
+          set -e
           mkdir -p $CM_EXPORT_DIR
-          cp build/ios/ipa/*.ipa $CM_EXPORT_DIR/manufacturing-app-unsigned.ipa
-          echo "IPA copied to $CM_EXPORT_DIR"
-          ls -la $CM_EXPORT_DIR
-      - name: Zip Runner.app as fallback (optional)
-        script: |
-          if [ -d "build/ios/iphoneos/Runner.app" ]; then
-            cd build/ios/iphoneos
-            zip -r "$CM_EXPORT_DIR/Runner-app.zip" Runner.app
-            echo "Runner-app zipped to $CM_EXPORT_DIR"
-            ls -la $CM_EXPORT_DIR
-          else
-            echo "Runner.app not found, cannot zip"
+
+          # Find Runner.app wherever it was built
+          RUNNER_APP=$(find build -name "Runner.app" -type d | head -1)
+
+          if [ -z "$RUNNER_APP" ]; then
+            echo "ERROR: Runner.app not found anywhere in build/"
+            find build -maxdepth 5 -type d
+            exit 1
           fi
+
+          echo "Found Runner.app at: $RUNNER_APP"
+
+          # Create proper IPA structure: Payload/Runner.app
+          TEMP_DIR=$(mktemp -d)
+          mkdir -p "$TEMP_DIR/Payload"
+          cp -r "$RUNNER_APP" "$TEMP_DIR/Payload/Runner.app"
+
+          # Create unsigned IPA (proper format with Payload/ folder)
+          cd "$TEMP_DIR"
+          zip -r "$CM_EXPORT_DIR/manufacturing-app.ipa" Payload
+          echo "Created manufacturing-app.ipa"
+
+          # Also zip the raw .app bundle
+          cd "$(dirname "$RUNNER_APP")"
+          zip -r "$CM_EXPORT_DIR/Runner-app.zip" Runner.app
+          echo "Created Runner-app.zip"
+
+          echo "=== Export Directory Contents ==="
+          ls -la $CM_EXPORT_DIR
     artifacts:
       - $CM_EXPORT_DIR/*.ipa
       - $CM_EXPORT_DIR/*.zip
-      - manufacturing_app/build/ios/iphoneos/*.ipa
     publishing:
       email:
         recipients:
